@@ -15,8 +15,9 @@
   #pattern { width: 130px; }
   button { padding: 6px 12px; cursor: pointer; }
   #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
-            justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none; }
-  #viewer img { max-width: 50%; max-height: 100%; object-fit: contain; }
+            justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none;
+            touch-action: none; }
+  #viewer img { max-width: 50%; max-height: 100%; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
   #viewer.single img { max-width: 100%; }
   .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; }
   #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
@@ -52,7 +53,7 @@
   <div class="zone" id="prev" title="ย้อนกลับ"></div>
 </div>
 <div id="bar">
-  <span>← กดฝั่งซ้าย/ปุ่ม ← = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/ปุ่ม → = ย้อนกลับ</span>
+  <span>← กดฝั่งซ้าย/←/ปัดซ้ายหรือขึ้น = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/→/ปัดขวาหรือลง = ย้อนกลับ</span>
   <span>|</span>
   <span id="pos"></span>
   <button type="button" id="pageToggle" style="display: none;" title="สลับหน้าเดี่ยว/หน้าคู่สำหรับหน้านี้ (กด S หรือ Space)"></button>
@@ -282,9 +283,54 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     toggleCurrentPageMode();
   }
-  if (e.key === "ArrowLeft") go(1);
-  if (e.key === "ArrowRight") go(-1);
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp") go(1);
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") go(-1);
 });
+
+// รองรับ Swipe Gesture: ซ้าย/ขึ้น = ถัดไป, ขวา/ลง = ย้อนกลับ
+let startX = 0, startY = 0, isTracking = false, swiped = false;
+const viewer = $("viewer");
+
+viewer.addEventListener("pointerdown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
+  startX = e.clientX;
+  startY = e.clientY;
+  isTracking = true;
+});
+
+window.addEventListener("pointerup", e => {
+  if (!isTracking) return;
+  isTracking = false;
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+  const minDistance = 40;
+
+  if (Math.max(absX, absY) >= minDistance) {
+    swiped = true;
+    setTimeout(() => { swiped = false; }, 300);
+
+    if (absX >= absY) {
+      if (dx < 0) go(1);   // ปัดซ้าย = ถัดไป
+      else go(-1);        // ปัดขวา = ย้อนกลับ
+    } else {
+      if (dy < 0) go(1);   // ปัดขึ้น = ถัดไป
+      else go(-1);        // ปัดลง = ย้อนกลับ
+    }
+  }
+});
+
+window.addEventListener("pointercancel", () => {
+  isTracking = false;
+});
+
+viewer.addEventListener("click", e => {
+  if (swiped) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }
+}, true);
 $("cover").onchange = () => {
   delete pageModes[0];
   buildSpreads();
