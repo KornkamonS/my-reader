@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manga Reader</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #111; color: #eee; font-family: sans-serif;
+         height: 100vh; display: flex; flex-direction: column; }
+  form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; }
+  input[type=text] { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
+  #url { flex: 1; min-width: 260px; }
+  #pattern { width: 120px; }
+  button { padding: 6px 12px; cursor: pointer; }
+  #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
+            justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none; }
+  #viewer img { max-width: 50%; max-height: 100%; object-fit: contain; }
+  #viewer.single img { max-width: 100%; }
+  .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; }
+  #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
+  #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
+  #msg { position: absolute; color: #aaa; text-align: center; padding: 0 16px; }
+  #bar { padding: 6px; text-align: center; background: #1e1e1e; font-size: 14px; }
+  label { font-size: 13px; }
+  /* โหมดเต็มจอ: ซ่อนแถบควบคุมให้ภาพใหญ่สุด (กด Esc หรือ F เพื่อออก) */
+  :fullscreen form, :fullscreen #bar { display: none; }
+</style>
+</head>
+<body>
+<form id="form">
+  <input type="text" id="url" required
+         placeholder="URL หน้าเว็บตอนมังงะ (หรือ URL รูป เช่น .../bleach-ep0232_4.jpg)">
+  <input type="text" id="pattern" value="backcat" title="กรอง URL รูป (regex) เฉพาะโหมดดึงจากหน้าเว็บ">
+  <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
+  <label><input type="checkbox" id="noref" checked> ไม่ส่ง Referer</label>
+  <button>โหลด</button>
+  <button type="button" id="prevch">◀ ตอนก่อนหน้า</button>
+  <button type="button" id="nextch">ตอนถัดไป ▶</button>
+  <button type="button" id="fs" title="เต็มจอ (กด F)">⛶ เต็มจอ</button>
+</form>
+<div id="viewer"><span id="msg">วาง URL หน้าเว็บตอนมังงะ แล้วกด "โหลด"</span>
+  <div class="zone" id="next" title="หน้าถัดไป"></div>
+  <div class="zone" id="prev" title="ย้อนกลับ"></div>
+</div>
+<div id="bar">กดฝั่งซ้าย/ปุ่ม ← = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/ปุ่ม → = ย้อนกลับ &nbsp;|&nbsp; <span id="pos"></span></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_PAGES = 300, BATCH = 10;
+const IMG_EXT = /\.(?:jpe?g|png|gif|webp|avif)(?:[?#].*)?$/i;
+const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+
+// เบราว์เซอร์ดึง HTML ข้ามเว็บตรงๆ ไม่ได้ (CORS) จึงลองตรงก่อน แล้วค่อยผ่าน CORS proxy สาธารณะ
+const PROXIES = [
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+];
+
+let mode = null;              // "page" = ดึงจากหน้าเว็บ, "tpl" = เดาจากเลขในชื่อไฟล์รูป
+let tpl = null;               // โหมด tpl
+let chapterUrl = "";          // โหมด page: URL หน้าตอนปัจจุบัน
+let chapterDoc = null;        // โหมด page: DOM ของหน้าตอนปัจจุบัน
+let pages = [], spreads = [], cur = 0, loadId = 0;
+
+async function fetchHtml(url) {
+  const tries = [u => u, ...PROXIES];
+  let lastErr;
+  for (const t of tries) {
+    try {
+      const r = await fetch(t(url));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const text = await r.text();
+      if (text.length > 200) return text;
+      throw new Error("ได้ข้อมูลว่าง");
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error("ดึงหน้าเว็บไม่ได้: " + lastErr.message);
+}
+
+/* ---------- โหมดหน้าเว็บ ---------- */
+function extractImages(html, doc, base, pattern) {
+  const found = new Set();
+  const add = s => {
+    if (!s || s.startsWith("data:")) return;
+    try { found.add(new URL(s.trim(), base).href); } catch {}
+  };
+  doc.querySelectorAll("img").forEach(img => {
+    for (const a of img.attributes) {
+      if (["src", "data-src", "data-original", "data-lazy-src"].includes(a.name)
+          || (IMG_EXT.test(a.value.trim()) && !a.value.includes(","))) add(a.value);
+      if (/srcset$/.test(a.name)) a.value.split(",").forEach(p => add(p.trim().split(/\s+/)[0]));
+    }
+  });
+  // รูปที่ถูกใส่ผ่าน JS / สคริปต์ (รวม \/ ที่ escape ไว้)
+  const raw = html.replace(/\\\//g, "/");
+  const re = /(?:https?:)?\/\/[^\s"'<>()\\]+?\.(?:jpe?g|png|gif|webp|avif)(?:\?[^\s"'<>()\\]*)?|(?<=["'])\/?[\w\-./%]+?\.(?:jpe?g|png|gif|webp|avif)(?=["'])/gi;
+  for (const m of raw.matchAll(re)) add(m[0]);
+  let list = [...found];
+  if (pattern) { const r = new RegExp(pattern); list = list.filter(u => r.test(u)); }
+  return list.sort(natural);
+}
+
+function findLink(doc, base, dir) {
+  const cur = base;
+  const ok = h => h && !/^(#|javascript:)/i.test(h) && new URL(h, base).href !== cur;
+  const rel = dir > 0 ? "next" : "prev";
+  const el = doc.querySelector(`a[rel~="${rel}"][href], link[rel~="${rel}"][href]`);
+  if (el && ok(el.getAttribute("href"))) return new URL(el.getAttribute("href"), base).href;
+  const re = dir > 0 ? /next|ตอนถัดไป|ตอนต่อไป|ถัดไป|ต่อไป|^\s*[>›»→▶]+\s*$/i
+                     : /prev|ตอนก่อนหน้า|ก่อนหน้า|ย้อนกลับ|^\s*[<‹«←◀]+\s*$/i;
+  for (const a of doc.querySelectorAll("a[href]")) {
+    const label = [a.textContent, a.title, a.getAttribute("aria-label"), a.className].join(" ");
+    if (re.test(label) && ok(a.getAttribute("href"))) return new URL(a.getAttribute("href"), base).href;
+  }
+  // สำรอง: เลขท้าย path ±1
+  const u = new URL(base);
+  const m = [...u.pathname.matchAll(/\d+/g)].pop();
+  if (m) {
+    const n = Math.max(0, +m[0] + dir);
+    u.pathname = u.pathname.slice(0, m.index) + String(n).padStart(m[0].length, "0") + u.pathname.slice(m.index + m[0].length);
+    return u.href;
+  }
+  return null;
+}
+
+async function loadPage(url, startAtEnd = false) {
+  const id = ++loadId;
+  $("msg").textContent = "กำลังดึงหน้าเว็บ...";
+  $("msg").style.display = "";
+  $("viewer").querySelectorAll("img").forEach(e => e.remove());
+  try {
+    const html = await fetchHtml(url);
+    if (id !== loadId) return false;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const imgs = extractImages(html, doc, url, $("pattern").value);
+    if (!imgs.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง หรือรูปถูกสร้างด้วย JS)");
+    mode = "page"; chapterUrl = url; chapterDoc = doc;
+    pages = imgs; cur = 0; buildSpreads();
+    if (startAtEnd) cur = spreads.length - 1;
+    $("url").value = url;
+    localStorage.setItem("lastUrl", url);
+    $("msg").style.display = "none";
+    render();
+    return true;
+  } catch (e) {
+    $("msg").textContent = "ผิดพลาด: " + e.message;
+    return false;
+  }
+}
+
+/* ---------- โหมดเดาจากเลขในชื่อไฟล์รูป ---------- */
+function parseImg(u) {
+  const m = u.trim().match(/^(.*?)(\d+)([_\-.])(\d+)(\.(?:jpe?g|png|gif|webp|avif))(\?.*)?$/i);
+  if (!m) return null;
+  return { prefix: m[1], ch: +m[2], chWidth: m[2].length, sep: m[3],
+           pageWidth: m[4].startsWith("0") ? m[4].length : 0, ext: m[5], query: m[6] || "" };
+}
+const pad = (n, w) => String(n).padStart(w, "0");
+const tplUrl = (t, ch, p) => `${t.prefix}${pad(ch, t.chWidth)}${t.sep}${pad(p, t.pageWidth)}${t.ext}${t.query}`;
+
+function probe(url) {
+  return new Promise(res => {
+    const im = new Image();
+    if ($("noref").checked) im.referrerPolicy = "no-referrer";
+    im.onload = () => res(true); im.onerror = () => res(false); im.src = url;
+  });
+}
+async function findPages(t, ch) {
+  const found = [];
+  for (let s = 1; s <= MAX_PAGES; s += BATCH) {
+    const urls = Array.from({ length: BATCH }, (_, i) => tplUrl(t, ch, s + i));
+    const ok = await Promise.all(urls.map(probe));
+    for (let i = 0; i < ok.length; i++) { if (!ok[i]) return found; found.push(urls[i]); }
+  }
+  return found;
+}
+async function loadTpl(ch, startAtEnd = false) {
+  const id = ++loadId;
+  $("msg").textContent = `กำลังโหลดตอน ${ch}...`;
+  $("msg").style.display = "";
+  $("viewer").querySelectorAll("img").forEach(e => e.remove());
+  const found = await findPages(tpl, ch);
+  if (id !== loadId) return false;
+  if (!found.length) { $("msg").textContent = `ไม่พบรูปของตอน ${ch}`; return false; }
+  mode = "tpl"; tpl.ch = ch; pages = found; cur = 0; buildSpreads();
+  if (startAtEnd) cur = spreads.length - 1;
+  $("url").value = tplUrl(tpl, ch, 1);
+  localStorage.setItem("lastUrl", $("url").value);
+  $("msg").style.display = "none";
+  render();
+  return true;
+}
+
+/* ---------- แสดงผล / ควบคุม ---------- */
+function buildSpreads() {
+  spreads = [];
+  let i = 0;
+  if ($("cover").checked && pages.length) spreads.push([pages[i++]]);
+  while (i < pages.length) spreads.push(pages.slice(i, i += 2));
+  cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+}
+
+function render() {
+  const v = $("viewer");
+  v.querySelectorAll("img").forEach(e => e.remove());
+  if (!spreads.length) return;
+  const mk = u => { const im = new Image(); if ($("noref").checked) im.referrerPolicy = "no-referrer"; im.src = u; return im; };
+  const s = spreads[cur];
+  v.classList.toggle("single", s.length === 1);
+  s.forEach(u => v.appendChild(mk(u)));          // row-reverse: รูปแรกอยู่ขวา
+  (spreads[cur + 1] || []).forEach(mk);          // preload
+  const shown = spreads.slice(0, cur + 1).reduce((n, x) => n + x.length, 0);
+  $("pos").textContent = `หน้า ${shown}/${pages.length}`;
+}
+
+async function changeChapter(d) {
+  if (!mode) return;
+  const snap = { pages, spreads, cur, mode, tpl: tpl && { ...tpl }, chapterUrl, chapterDoc };
+  let ok = false;
+  if (mode === "tpl") {
+    ok = await loadTpl(tpl.ch + d, d < 0);
+  } else {
+    const next = findLink(chapterDoc, chapterUrl, d);
+    if (!next) { $("msg").style.display = ""; $("msg").textContent = "ไม่พบลิงก์ตอนนั้น"; }
+    else ok = await loadPage(next, d < 0);
+  }
+  if (!ok) {  // ไม่มีตอนนั้น กลับไปตอนเดิม
+    ({ pages, spreads, cur, mode, tpl, chapterUrl, chapterDoc } = snap);
+    setTimeout(() => { $("msg").style.display = "none"; render(); }, 2500);
+  }
+}
+
+const go = d => {
+  const n = cur + d;
+  if (n >= 0 && n < spreads.length) { cur = n; render(); }
+  else if (spreads.length) changeChapter(d);     // สุดตอน → ข้ามไปตอนถัดไป/ก่อนหน้า
+};
+$("next").onclick = () => go(1);
+$("prev").onclick = () => go(-1);
+$("nextch").onclick = () => changeChapter(1);
+$("prevch").onclick = () => changeChapter(-1);
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+$("fs").onclick = toggleFullscreen;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type === "text") return;
+  if (e.key === "f" || e.key === "F") toggleFullscreen();
+  if (e.key === "ArrowLeft") go(1);
+  if (e.key === "ArrowRight") go(-1);
+});
+$("cover").onchange = () => { buildSpreads(); render(); };
+$("noref").onchange = render;
+
+$("form").onsubmit = e => {
+  e.preventDefault();
+  const u = $("url").value.trim();
+  if (IMG_EXT.test(u)) {                         // ใส่ URL รูป → โหมดเดาจากเลขไฟล์
+    const t = parseImg(u);
+    if (!t) { $("msg").style.display = ""; $("msg").textContent = "ชื่อรูปต้องมีเลขตอนและเลขหน้า เช่น bleach-ep0232_4.jpg"; return; }
+    tpl = t; loadTpl(t.ch);
+  } else {
+    loadPage(u);                                 // ใส่ URL หน้าเว็บ → ดึง HTML
+  }
+};
+
+$("url").value = localStorage.getItem("lastUrl") || "";
+</script>
+</body>
+</html>

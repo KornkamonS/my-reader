@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manga Reader</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #111; color: #eee; font-family: sans-serif;
+         height: 100vh; display: flex; flex-direction: column; }
+  form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; }
+  input[type=text] { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
+  #url { flex: 1; min-width: 220px; }
+  #pattern { width: 130px; }
+  button { padding: 6px 12px; cursor: pointer; }
+  #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
+            justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none; }
+  #viewer img { max-width: 50%; max-height: 100%; object-fit: contain; }
+  #viewer.single img { max-width: 100%; }
+  .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; }
+  #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
+  #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
+  #msg { position: absolute; color: #aaa; }
+  #bar { padding: 6px; text-align: center; background: #1e1e1e; font-size: 14px; }
+  label { font-size: 13px; }
+  /* โหมดเต็มจอ: ซ่อนแถบควบคุมให้ภาพใหญ่สุด (กด Esc หรือ F เพื่อออก) */
+  :fullscreen form, :fullscreen #bar { display: none; }
+</style>
+</head>
+<body>
+<form id="form">
+  <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
+  <input type="text" id="pattern" value="backcat" placeholder="กรอง URL (regex)">
+  <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
+  <label><input type="checkbox" id="proxy" checked> โหลดผ่านเซิร์ฟเวอร์</label>
+  <button>โหลด</button>
+  <button type="button" id="prevch" title="ไปตอนก่อนหน้า">◀ ตอนก่อนหน้า</button>
+  <button type="button" id="nextch" title="ไปตอนถัดไป">ตอนถัดไป ▶</button>
+  <button type="button" id="fs" title="เต็มจอ (กด F)">⛶ เต็มจอ</button>
+</form>
+<div id="viewer"><span id="msg">ใส่ URL แล้วกด "โหลด"</span>
+  <div class="zone" id="next" title="หน้าถัดไป"></div>
+  <div class="zone" id="prev" title="ย้อนกลับ"></div>
+</div>
+<div id="bar">← กดฝั่งซ้าย/ปุ่ม ← = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/ปุ่ม → = ย้อนกลับ &nbsp;|&nbsp; <span id="pos"></span></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let pages = [], spreads = [], cur = 0;
+
+// เรียงตามเลขท้ายชื่อไฟล์ (natural sort): _2 มาก่อน _10
+const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+
+function buildSpreads() {
+  spreads = [];
+  let i = 0;
+  if ($("cover").checked && pages.length) spreads.push([pages[i++]]);
+  while (i < pages.length) spreads.push(pages.slice(i, i += 2));
+  cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+}
+
+const src = u => $("proxy").checked ? "/proxy?url=" + encodeURIComponent(u) : u;
+
+function render() {
+  const v = $("viewer");
+  v.querySelectorAll("img").forEach(e => e.remove());
+  if (!spreads.length) return;
+  const s = spreads[cur];
+  v.classList.toggle("single", s.length === 1);
+  // row-reverse: รูปแรกใน DOM อยู่ขวาสุด (หน้าก่อนหน้าอยู่ขวา หน้าถัดไปอยู่ซ้าย)
+  s.forEach(u => { const im = new Image(); im.src = src(u); v.appendChild(im); });
+  // preload spread ถัดไป
+  (spreads[cur + 1] || []).forEach(u => { new Image().src = src(u); });
+  const shown = spreads.slice(0, cur + 1).reduce((n, x) => n + x.length, 0);
+  $("pos").textContent = `หน้า ${shown}/${pages.length} (ชุด ${cur + 1}/${spreads.length})`;
+  history.replaceState(null, "", "#" + cur);
+}
+
+const go = d => { const n = cur + d; if (n >= 0 && n < spreads.length) { cur = n; render(); } };
+$("next").onclick = () => go(1);
+$("prev").onclick = () => go(-1);
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+$("fs").onclick = toggleFullscreen;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "f" || e.key === "F") toggleFullscreen();
+  if (e.key === "ArrowLeft") go(1);
+  if (e.key === "ArrowRight") go(-1);
+});
+$("cover").onchange = () => { buildSpreads(); render(); };
+$("proxy").onchange = render;
+
+async function loadChapter() {
+  $("msg").textContent = "กำลังโหลด...";
+  $("msg").style.display = "";
+  try {
+    const q = new URLSearchParams({ url: $("url").value, pattern: $("pattern").value });
+    const r = await fetch("/images?" + q);
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const data = await r.json();
+    pages = data.images.map(i => i.url).sort(natural);
+    if (!pages.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง URL)");
+    cur = 0; buildSpreads(); $("msg").style.display = "none"; render();
+    localStorage.setItem("lastUrl", $("url").value);
+  } catch (err) {
+    pages = []; spreads = []; render();
+    $("msg").textContent = "ผิดพลาด: " + err.message;
+  }
+}
+
+$("form").onsubmit = e => { e.preventDefault(); loadChapter(); };
+
+const changeChapter = (endpoint, key, label) => async () => {
+  if (!$("url").value) return;
+  $("msg").textContent = "กำลังหา" + label + "...";
+  $("msg").style.display = "";
+  try {
+    const r = await fetch("/" + endpoint + "?url=" + encodeURIComponent($("url").value));
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    $("url").value = (await r.json())[key];
+    await loadChapter();
+  } catch (err) {
+    $("msg").textContent = "ผิดพลาด: " + err.message;
+  }
+};
+$("nextch").onclick = changeChapter("next", "next", "ตอนถัดไป");
+$("prevch").onclick = changeChapter("prev", "prev", "ตอนก่อนหน้า");
+
+$("url").value = localStorage.getItem("lastUrl") || "";
+</script>
+</body>
+</html>
