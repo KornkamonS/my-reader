@@ -1,6 +1,7 @@
 import ipaddress
 import re
 import socket
+import time
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -29,11 +30,11 @@ def check_url(url: str) -> None:
         raise HTTPException(400, "ไม่พบโดเมนนี้")
 
 
-async def fetch(url: str) -> str:
+async def fetch(url: str, timeout: float = 10) -> str:
     check_url(url)
     try:
         async with httpx.AsyncClient(
-            headers=HEADERS, timeout=10, follow_redirects=True
+            headers=HEADERS, timeout=timeout, follow_redirects=True
         ) as client:
             r = await client.get(url)
             r.raise_for_status()
@@ -333,9 +334,144 @@ async def prev_chapter(url: str = Query(..., description="URL of current chapter
     raise HTTPException(404, "Previous chapter not found")
 
 
+SITE_PROFILES = {
+    "asianovel.net": {
+        "content": "#chapter-content .chapter-formatting",
+        "next": "a._navigation._next",
+        "prev": "a._navigation._prev",
+    },
+}
+JUNK_TAGS = ["script", "style", "nav", "header", "footer", "aside", "form", "noscript", "iframe", "button"]
+TEXT_CACHE: dict[str, tuple[float, dict]] = {}
+TEXT_CACHE_TTL = 600
+
+
+def get_profile(url: str) -> dict:
+    host = (urlparse(url).hostname or "").lower()
+    for domain, prof in SITE_PROFILES.items():
+        if host == domain or host.endswith("." + domain):
+            return prof
+    return {}
+
+
+def guess_content(soup: BeautifulSoup):
+    """หา element ที่มีข้อความย่อหน้ามากที่สุด (heuristic แบบ readability)"""
+    for t in soup(JUNK_TAGS):
+        t.decompose()
+    scores: dict[int, tuple[int, object]] = {}
+    for p in soup.find_all("p"):
+        n = len(p.get_text(strip=True))
+        parent = p.parent
+        if parent is None:
+            continue
+        cur = scores.get(id(parent), (0, parent))
+        scores[id(parent)] = (cur[0] + n, parent)
+    return max(scores.values(), key=lambda x: x[0])[1] if scores else None
+
+
+def nav_by_selector(soup: BeautifulSoup, url: str, selector: Optional[str]) -> Optional[str]:
+    if not selector:
+        return None
+    el = soup.select_one(selector)
+    href = el.get("href") if el else None
+    if href and not href.startswith(("#", "javascript:")):
+        return urljoin(url, href)
+    return None
+
+
+def nav_generic(soup: BeautifulSoup, url: str, rels: set, pattern: re.Pattern) -> Optional[str]:
+    for tag in soup.find_all(["a", "link"], rel=True, href=True):
+        if rels & {r.lower() for r in tag["rel"]} and urljoin(url, tag["href"]) != url:
+            return urljoin(url, tag["href"])
+    for a in soup.find_all("a", href=True):
+        label = " ".join([a.get_text(" ", strip=True), a.get("title", "")] + a.get("class", []))
+        href = a["href"]
+        if pattern.search(label) and not href.startswith(("#", "javascript:")) and urljoin(url, href) != url:
+            return urljoin(url, href)
+    return None
+
+
+@app.get("/text")
+async def text(
+    url: str = Query(..., description="URL หน้าตอนนิยาย"),
+    selector: Optional[str] = Query(None, description="CSS selector ของเนื้อหา (ไม่ใส่ = อัตโนมัติ)"),
+):
+    """ดึงเนื้อหานิยาย: title, ย่อหน้า, ลิงก์ตอนก่อนหน้า/ถัดไป"""
+    key = f"{url}|{selector or ''}"
+    hit = TEXT_CACHE.get(key)
+    if hit and time.time() - hit[0] < TEXT_CACHE_TTL:
+        return hit[1]
+
+    html = await fetch(url, timeout=40)
+    soup = BeautifulSoup(html, "html.parser")
+    prof = get_profile(url)
+
+    nxt = nav_by_selector(soup, url, prof.get("next")) or nav_generic(soup, url, {"next"}, NEXT_TEXT)
+    prv = nav_by_selector(soup, url, prof.get("prev")) or nav_generic(
+        soup, url, {"prev", "previous"}, PREV_TEXT
+    )
+
+    story_title = None
+    meta = soup.find(id="chapter-bookmark-data")
+    title = None
+    if meta:
+        title = meta.get("data-title")
+        story_title = meta.get("data-story-title")
+    if not title:
+        og = soup.find("meta", attrs={"property": "og:title"})
+        title = og.get("content") if og else (soup.title.get_text(strip=True) if soup.title else None)
+
+    content = soup.select_one(selector or prof.get("content", "")) if (selector or prof.get("content")) else None
+    source = "selector" if selector else "profile"
+    if content is None:
+        content = guess_content(soup)
+        source = "auto"
+    if content is None:
+        raise HTTPException(404, "ไม่พบเนื้อหาข้อความในหน้านี้")
+
+    for t in content(JUNK_TAGS):
+        t.decompose()
+    paragraphs: list[str] = []
+    ps = content.find_all("p")
+    if ps:
+        chunks = [p.get_text("\n", strip=True) for p in ps]
+    else:
+        chunks = content.get_text("\n", strip=True).split("\n")
+    for c in chunks:
+        for line in c.split("\n"):
+            line = re.sub(r"\s+", " ", line).strip()
+            if line and (not paragraphs or paragraphs[-1] != line):
+                paragraphs.append(line)
+    if not paragraphs:
+        raise HTTPException(404, "ไม่พบเนื้อหาข้อความในหน้านี้")
+
+    data = {
+        "url": url,
+        "title": title,
+        "story_title": story_title,
+        "paragraphs": paragraphs,
+        "next": nxt,
+        "prev": prv,
+        "source": source,
+    }
+    TEXT_CACHE[key] = (time.time(), data)
+    if len(TEXT_CACHE) > 100:
+        TEXT_CACHE.pop(next(iter(TEXT_CACHE)))
+    return data
+
+
+STATIC = Path(__file__).parent / "static"
+
+
+@app.get("/manga", include_in_schema=False)
 @app.get("/reader", include_in_schema=False)
 def reader():
-    return FileResponse(Path(__file__).parent / "static" / "reader.html")
+    return FileResponse(STATIC / "reader.html")
+
+
+@app.get("/novels", include_in_schema=False)
+def novels():
+    return FileResponse(STATIC / "novel.html")
 
 
 @app.get("/")
@@ -343,5 +479,7 @@ def root():
     return {
         "usage": "GET /scrape?url=https://example.com[&selector=h1][&pattern=...][&group=main]",
         "images": "GET /images?url=https://example.com[&pattern=...][&group=main]",
+        "text": "GET /text?url=https://example.com/chapter[&selector=...]",
+        "pages": "/manga (อ่านมังงะ), /novels (อ่านนิยาย)",
         "docs": "/docs",
     }
