@@ -168,7 +168,7 @@ async function load(startAt = null) {
     layout(startAt);
     localStorage.setItem("novelLast", u);
     history.replaceState(null, "", "?" + new URLSearchParams({ url: u }));
-    prefetch(data.next);
+    if (!data.rendered) prefetch(data.next); // เว็บที่ต้องเรนเดอร์ด้วยเบราว์เซอร์: ดึงทีละตอนตามที่กดอ่านเท่านั้น
   } catch (e) {
     data = null; $("book").innerHTML = ""; show();
     $("msg").textContent = "ผิดพลาด: " + e.message;

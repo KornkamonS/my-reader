@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import re
 import socket
@@ -369,6 +370,53 @@ def guess_content(soup: BeautifulSoup):
     return max(scores.values(), key=lambda x: x[0])[1] if scores else None
 
 
+def nav_by_regex(html: str, pattern: Optional[str], tpl: Optional[str]) -> Optional[str]:
+    """ดึง id ตอนถัดไป/ก่อนหน้าจากสคริปต์ในหน้า แล้วประกอบเป็น URL ด้วย template"""
+    if not pattern or not tpl:
+        return None
+    m = re.search(pattern, html)
+    return tpl.format(m.group(1)) if m and m.group(1) else None
+
+
+RENDER_LOCK = asyncio.Lock()  # เปิดเบราว์เซอร์ทีละหน้าเท่านั้น
+
+
+async def render_html(url: str, wait_selector: Optional[str]) -> str:
+    """เปิดหน้าด้วยเบราว์เซอร์ headless ให้สคริปต์ของเว็บโหลดเนื้อหาเอง แล้วคืน HTML ที่เรนเดอร์แล้ว
+    หากเว็บตอบ 403/429 หรือขึ้น captcha จะแจ้งข้อผิดพลาดและหยุด (ไม่พยายามเลี่ยง)"""
+    check_url(url)
+    try:
+        from playwright.async_api import TimeoutError as PWTimeout
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise HTTPException(500, "ยังไม่ได้ติดตั้ง playwright (pip install playwright && playwright install chromium)")
+    async with RENDER_LOCK:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page()
+                resp = await page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                if resp and resp.status in (403, 429, 503):
+                    raise HTTPException(502, f"เว็บปลายทางปฏิเสธการเข้าถึง ({resp.status})")
+                if wait_selector:
+                    try:
+                        await page.wait_for_function(
+                            "s => { const e = document.querySelector(s); return e && e.innerText.trim().length > 50; }",
+                            arg=wait_selector,
+                            timeout=30000,
+                        )
+                    except PWTimeout:
+                        html = (await page.content()).lower()
+                        if any(k in html for k in ("captcha", "cf-challenge", "just a moment")):
+                            raise HTTPException(502, "เว็บต้องการยืนยันตัวตน (captcha) จึงดึงไม่ได้")
+                        raise HTTPException(502, "รอเนื้อหาไม่สำเร็จ (ตอนนี้อาจต้องซื้อ/ล็อกอิน หรือโหลดไม่ขึ้น)")
+                return await page.content()
+            except PWTimeout:
+                raise HTTPException(502, "โหลดหน้าเว็บหมดเวลา")
+            finally:
+                await browser.close()
+
+
 def nav_by_selector(soup: BeautifulSoup, url: str, selector: Optional[str]) -> Optional[str]:
     if not selector:
         return None
@@ -402,13 +450,22 @@ async def text(
     if hit and time.time() - hit[0] < TEXT_CACHE_TTL:
         return hit[1]
 
-    html = await fetch(url, timeout=40)
-    soup = BeautifulSoup(html, "html.parser")
     prof = get_profile(url)
+    if prof.get("render"):
+        html = await render_html(url, prof.get("wait") or prof.get("content"))
+    else:
+        html = await fetch(url, timeout=40)
+    soup = BeautifulSoup(html, "html.parser")
 
-    nxt = nav_by_selector(soup, url, prof.get("next")) or nav_generic(soup, url, {"next"}, NEXT_TEXT)
-    prv = nav_by_selector(soup, url, prof.get("prev")) or nav_generic(
-        soup, url, {"prev", "previous"}, PREV_TEXT
+    nxt = (
+        nav_by_regex(html, prof.get("next_re"), prof.get("link_tpl"))
+        or nav_by_selector(soup, url, prof.get("next"))
+        or nav_generic(soup, url, {"next"}, NEXT_TEXT)
+    )
+    prv = (
+        nav_by_regex(html, prof.get("prev_re"), prof.get("link_tpl"))
+        or nav_by_selector(soup, url, prof.get("prev"))
+        or nav_generic(soup, url, {"prev", "previous"}, PREV_TEXT)
     )
 
     story_title = None
@@ -453,6 +510,7 @@ async def text(
         "next": nxt,
         "prev": prv,
         "source": source,
+        "rendered": bool(prof.get("render")),
     }
     TEXT_CACHE[key] = (time.time(), data)
     if len(TEXT_CACHE) > 100:
