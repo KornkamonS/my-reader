@@ -32,6 +32,7 @@
 </head>
 <body>
 <form id="form">
+  <button type="button" id="homeBtn" title="เปิดลิงก์ในแท็บใหม่">🏠 Home</button>
   <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
   <select id="groupSelect" style="display: none;" title="ตัวกรองกลุ่มรูปภาพ"></select>
   <input type="text" id="pattern" placeholder="กรอง URL (regex)">
@@ -270,6 +271,10 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen().catch(() => {});
 }
 $("fs").onclick = toggleFullscreen;
+$("homeBtn").onclick = () => {
+  const u = $("url").value.trim();
+  window.open(u || "/reader", "_blank", "noopener");
+};
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.key === "f" || e.key === "F") toggleFullscreen();
