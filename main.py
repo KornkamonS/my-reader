@@ -44,36 +44,6 @@ async def fetch(url: str) -> str:
         raise HTTPException(502, f"ดึงข้อมูลไม่สำเร็จ: {e}")
 
 
-@app.get("/scrape")
-async def scrape(
-    url: str = Query(..., description="URL ของเว็บที่ต้องการดึง"),
-    selector: Optional[str] = Query(None, description="CSS selector เช่น h2.title"),
-):
-    """ดึง title, description, หัวข้อ, ลิงก์ หรือข้อความตาม CSS selector"""
-    html = await fetch(url)
-    soup = BeautifulSoup(html, "html.parser")
-
-    if selector:
-        return {
-            "url": url,
-            "selector": selector,
-            "results": [el.get_text(" ", strip=True) for el in soup.select(selector)],
-        }
-
-    desc = soup.find("meta", attrs={"name": "description"})
-    return {
-        "url": url,
-        "title": soup.title.string.strip() if soup.title and soup.title.string else None,
-        "description": desc.get("content") if desc else None,
-        "headings": [h.get_text(strip=True) for h in soup.find_all(["h1", "h2", "h3"])],
-        "images": extract_images(soup, url, html)[:100],
-        "links": [
-            {"text": a.get_text(strip=True), "href": urljoin(url, a["href"])}
-            for a in soup.find_all("a", href=True)
-        ][:100],
-    }
-
-
 IMG_RE = re.compile(r"\.(?:jpe?g|png|gif|webp|avif|bmp)(?:[?#].*)?$", re.I)
 # ค้น URL รูปจาก HTML/สคริปต์ดิบ (กรณีรูปถูกใส่ผ่าน JS)
 IMG_URL_RE = re.compile(
@@ -81,6 +51,90 @@ IMG_URL_RE = re.compile(
     r"""|(?<=["'])/?[\w\-./%]+?\.(?:jpe?g|png|gif|webp|avif)(?=["'])""",
     re.I,
 )
+
+
+def natural_sort_key(s: str) -> list:
+    """แปลงข้อความเป็นคีย์สำหรับเรียงลำดับแบบตัวเลขธรรมชาติ (natural sort: เช่น 2 มาก่อน 10)"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
+
+
+def get_image_group_info(url: str) -> tuple[str, str, str]:
+    """วิเคราะห์ URL รูปภาพเพื่อหากลุ่ม
+    คืนค่า (key, display_name, pattern)
+    """
+    p = urlparse(url)
+    path = p.path
+    # หาตัวเลขก่อนนามสกุลไฟล์ เช่น ...-055520-001.jpg หรือ /01.png
+    m = re.search(r"^(.*?)([-_./]?\d+)(\.[a-zA-Z0-9]+(?:[?#].*)?)$", path)
+    if m:
+        prefix = m.group(1)
+        ext = m.group(3)
+        name_part = prefix.rstrip("/").split("/")[-1] if prefix.rstrip("/") else path
+        clean_name = name_part.strip("-_") or name_part
+        key = f"{p.scheme}://{p.netloc}{prefix}*{ext}"
+        return key, clean_name, clean_name
+
+    dir_path = path.rsplit("/", 1)[0] if "/" in path else path
+    dir_name = dir_path.rstrip("/").split("/")[-1] if dir_path.rstrip("/") else "other"
+    key = f"{p.scheme}://{p.netloc}{dir_path}/"
+    return key, dir_name, dir_name
+
+
+def group_and_sort_images(
+    images: list[dict], pattern: Optional[str] = None, group: Optional[str] = None
+) -> tuple[list[dict], list[dict]]:
+    """จัดกลุ่มรูปภาพตาม URL pattern/prefix พร้อมเรียงลำดับ natural sort
+    คืนค่า (sorted_images, groups_summary)
+    """
+    grouped_map: dict[str, dict] = {}
+    for item in images:
+        u = item["url"]
+        key, name, pat = get_image_group_info(u)
+        if key not in grouped_map:
+            grouped_map[key] = {
+                "name": name,
+                "pattern": pat,
+                "key": key,
+                "sample": u,
+                "images": [],
+            }
+        grouped_map[key]["images"].append(item)
+
+    # เรียงลำดับรูปภาพในแต่ละกลุ่มตาม natural sort
+    group_list = []
+    for g in grouped_map.values():
+        g["images"].sort(key=lambda x: natural_sort_key(x["url"]))
+        g["count"] = len(g["images"])
+        group_list.append(g)
+
+    # เรียงกลุ่มตามจำนวนรูปมาก -> น้อย (กลุ่มหลักที่มีรูปเยอะสุดจะอยู่แรก)
+    group_list.sort(key=lambda g: g["count"], reverse=True)
+
+    groups_summary = [
+        {"name": g["name"], "pattern": g["pattern"], "count": g["count"], "sample": g["sample"]}
+        for g in group_list
+    ]
+
+    # กรณีระบุ pattern (regex)
+    if pattern:
+        filtered = [img for img in images if re.search(pattern, img["url"])]
+        filtered.sort(key=lambda x: natural_sort_key(x["url"]))
+        return filtered, groups_summary
+
+    # กรณีระบุ group (เช่น group=main หรือระบุชื่อกลุ่ม)
+    if group:
+        if group.lower() in ("main", "primary", "largest") and group_list:
+            return group_list[0]["images"], groups_summary
+        for g in group_list:
+            if group.lower() in g["name"].lower() or group.lower() in g["pattern"].lower():
+                return g["images"], groups_summary
+
+    # ค่าเริ่มต้น: รวมทุกกลุ่มโดยนำกลุ่มหลักขึ้นก่อน และในแต่ละกลุ่มเรียงเลขหน้า
+    all_sorted = []
+    for g in group_list:
+        all_sorted.extend(g["images"])
+
+    return all_sorted, groups_summary
 
 
 def extract_images(
@@ -92,7 +146,10 @@ def extract_images(
     def add(src: Optional[str], alt: str = "") -> None:
         if not src or src.startswith("data:"):
             return
-        found.setdefault(urljoin(base_url, src.strip()), alt)
+        full = urljoin(base_url, src.strip())
+        alt_str = alt.strip() if alt else ""
+        if full not in found or (found[full] in ("", "og:image") and alt_str and alt_str != "og:image"):
+            found[full] = alt_str
 
     for meta in soup.find_all("meta", attrs={"property": "og:image"}):
         add(meta.get("content"), "og:image")
@@ -125,16 +182,54 @@ def extract_images(
     return result
 
 
+@app.get("/scrape")
+async def scrape(
+    url: str = Query(..., description="URL ของเว็บที่ต้องการดึง"),
+    selector: Optional[str] = Query(None, description="CSS selector เช่น h2.title"),
+    pattern: Optional[str] = Query(None, description="regex กรอง URL รูปภาพ เช่น caisson"),
+    group: Optional[str] = Query(None, description="กรองตามชื่อกลุ่ม หรือใส่ 'main' เพื่อเลือกกลุ่มหลัก"),
+):
+    """ดึง title, description, หัวข้อ, ลิงก์ และรูปภาพที่จัดกลุ่มและเรียงลำดับแล้ว"""
+    html = await fetch(url)
+    soup = BeautifulSoup(html, "html.parser")
+
+    if selector:
+        return {
+            "url": url,
+            "selector": selector,
+            "results": [el.get_text(" ", strip=True) for el in soup.select(selector)],
+        }
+
+    raw_images = extract_images(soup, url, html)
+    sorted_images, groups = group_and_sort_images(raw_images, pattern=pattern, group=group)
+
+    desc = soup.find("meta", attrs={"name": "description"})
+    return {
+        "url": url,
+        "title": soup.title.string.strip() if soup.title and soup.title.string else None,
+        "description": desc.get("content") if desc else None,
+        "headings": [h.get_text(strip=True) for h in soup.find_all(["h1", "h2", "h3"])],
+        "groups": groups,
+        "images": sorted_images[:100],
+        "links": [
+            {"text": a.get_text(strip=True), "href": urljoin(url, a["href"])}
+            for a in soup.find_all("a", href=True)
+        ][:100],
+    }
+
+
 @app.get("/images")
 async def images(
     url: str = Query(..., description="URL ของเว็บที่ต้องการดึงรูป"),
-    pattern: Optional[str] = Query(None, description="regex กรอง URL เช่น backcat"),
+    pattern: Optional[str] = Query(None, description="regex กรอง URL เช่น caisson"),
+    group: Optional[str] = Query(None, description="กรองตามชื่อกลุ่ม หรือใส่ 'main' เพื่อเลือกกลุ่มหลัก"),
 ):
-    """ดึง URL รูปภาพทั้งหมดในหน้าเว็บ"""
+    """ดึง URL รูปภาพทั้งหมดในหน้าเว็บ พร้อมจัดกลุ่มและเรียงลำดับหน้า"""
     html = await fetch(url)
     soup = BeautifulSoup(html, "html.parser")
-    imgs = extract_images(soup, url, html, pattern)
-    return {"url": url, "count": len(imgs), "images": imgs}
+    raw_imgs = extract_images(soup, url, html)
+    sorted_imgs, groups = group_and_sort_images(raw_imgs, pattern=pattern, group=group)
+    return {"url": url, "count": len(sorted_imgs), "groups": groups, "images": sorted_imgs}
 
 
 @app.get("/proxy")
@@ -246,7 +341,7 @@ def reader():
 @app.get("/")
 def root():
     return {
-        "usage": "GET /scrape?url=https://example.com[&selector=h1]",
-        "images": "GET /images?url=https://example.com",
+        "usage": "GET /scrape?url=https://example.com[&selector=h1][&pattern=...][&group=main]",
+        "images": "GET /images?url=https://example.com[&pattern=...][&group=main]",
         "docs": "/docs",
     }

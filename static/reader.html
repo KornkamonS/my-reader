@@ -9,8 +9,9 @@
   body { margin: 0; background: #111; color: #eee; font-family: sans-serif;
          height: 100vh; display: flex; flex-direction: column; }
   form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; }
-  input[type=text] { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
+  input[type=text], select { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
   #url { flex: 1; min-width: 220px; }
+  #groupSelect { max-width: 280px; font-size: 13px; font-weight: bold; background: #1a3045; border-color: #2b5c8f; }
   #pattern { width: 130px; }
   button { padding: 6px 12px; cursor: pointer; }
   #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
@@ -30,7 +31,8 @@
 <body>
 <form id="form">
   <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
-  <input type="text" id="pattern" value="backcat" placeholder="กรอง URL (regex)">
+  <select id="groupSelect" style="display: none;" title="ตัวกรองกลุ่มรูปภาพ"></select>
+  <input type="text" id="pattern" placeholder="กรอง URL (regex)">
   <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
   <label><input type="checkbox" id="proxy" checked> โหลดผ่านเซิร์ฟเวอร์</label>
   <button>โหลด</button>
@@ -47,9 +49,105 @@
 <script>
 const $ = id => document.getElementById(id);
 let pages = [], spreads = [], cur = 0, initCur = 0;
+let allImages = [], detectedGroups = [];
 
 // เรียงตามเลขท้ายชื่อไฟล์ (natural sort): _2 มาก่อน _10
 const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+
+function extractGroupsClient(images) {
+  const grps = {};
+  for (const item of images) {
+    const u = typeof item === "string" ? item : item.url;
+    try {
+      const urlObj = new URL(u);
+      const p = urlObj.pathname;
+      const m = p.match(/^(.*?)(\d+)(\.[a-zA-Z0-9]+(?:[?#].*)?)$/);
+      if (m) {
+        const prefix = m[1];
+        const namePart = prefix.replace(/\/$/, "").split("/").pop() || prefix;
+        const cleanName = namePart.replace(/^[-_]+|[-_]+$/g, "") || namePart;
+        const key = urlObj.origin + prefix + "*" + m[3];
+        if (!grps[key]) grps[key] = { name: cleanName, pattern: cleanName, count: 0, sample: u, urls: [] };
+        grps[key].count++;
+        grps[key].urls.push(u);
+      } else {
+        const dir = p.substring(0, p.lastIndexOf("/") + 1);
+        const dirName = dir.replace(/\/$/, "").split("/").pop() || "other";
+        const key = urlObj.origin + dir;
+        if (!grps[key]) grps[key] = { name: dirName, pattern: dirName, count: 0, sample: u, urls: [] };
+        grps[key].count++;
+        grps[key].urls.push(u);
+      }
+    } catch (e) {}
+  }
+  return Object.values(grps).sort((a, b) => b.count - a.count);
+}
+
+function updateGroupDropdown(groups, totalCount) {
+  const sel = $("groupSelect");
+  sel.innerHTML = "";
+
+  if (!groups || groups.length <= 1) {
+    sel.style.display = "none";
+    return;
+  }
+
+  sel.style.display = "inline-block";
+
+  // ตัวเลือกกลุ่มหลัก (กลุ่มที่มีจำนวนรูปมากที่สุด)
+  const mainGrp = groups[0];
+  const mainOpt = document.createElement("option");
+  mainOpt.value = "group:0";
+  mainOpt.textContent = `⭐ กลุ่มหลัก: ${mainGrp.name} (${mainGrp.count} หน้า)`;
+  sel.appendChild(mainOpt);
+
+  // ตัวเลือกกลุ่มอื่นๆ ที่มีรูปมากกว่า 0
+  groups.slice(1).forEach((g, idx) => {
+    if (g.count > 0) {
+      const opt = document.createElement("option");
+      opt.value = `group:${idx + 1}`;
+      opt.textContent = `กลุ่ม: ${g.name} (${g.count} รูป)`;
+      sel.appendChild(opt);
+    }
+  });
+
+  // ตัวเลือกแสดงทั้งหมด
+  const allOpt = document.createElement("option");
+  allOpt.value = "all";
+  allOpt.textContent = `ทั้งหมด (${totalCount} รูป)`;
+  sel.appendChild(allOpt);
+
+  sel.value = "group:0";
+}
+
+function applyGroupSelection() {
+  const sel = $("groupSelect");
+  const val = sel.value;
+
+  if (val.startsWith("group:") && detectedGroups.length) {
+    const idx = parseInt(val.split(":")[1], 10);
+    const grp = detectedGroups[idx];
+    if (grp) {
+      if (grp.urls && grp.urls.length) {
+        pages = [...grp.urls].sort(natural);
+      } else {
+        pages = allImages
+          .filter(u => u.includes(grp.pattern) || u.includes(grp.name))
+          .sort(natural);
+      }
+      return;
+    }
+  }
+
+  pages = [...allImages].sort(natural);
+}
+
+$("groupSelect").onchange = () => {
+  applyGroupSelection();
+  cur = 0;
+  buildSpreads();
+  render();
+};
 
 function buildSpreads() {
   spreads = [];
@@ -88,7 +186,7 @@ function toggleFullscreen() {
 }
 $("fs").onclick = toggleFullscreen;
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.key === "f" || e.key === "F") toggleFullscreen();
   if (e.key === "ArrowLeft") go(1);
   if (e.key === "ArrowRight") go(-1);
@@ -100,13 +198,31 @@ async function loadChapter() {
   $("msg").textContent = "กำลังโหลด...";
   $("msg").style.display = "";
   try {
-    const q = new URLSearchParams({ url: $("url").value, pattern: $("pattern").value });
+    const q = new URLSearchParams({ url: $("url").value });
+    if ($("pattern").value.trim()) {
+      q.set("pattern", $("pattern").value.trim());
+    }
     const r = await fetch("/images?" + q);
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const data = await r.json();
-    pages = data.images.map(i => i.url).sort(natural);
+
+    allImages = (data.images || []).map(i => typeof i === "string" ? i : i.url);
+    
+    // ใช้ groups จาก backend ถ้ามี หรือประมวลผล client-side
+    detectedGroups = data.groups && data.groups.length ? data.groups : extractGroupsClient(allImages);
+
+    // อัปเดต dropdown สำหรับกรองกลุ่มรูป
+    updateGroupDropdown(detectedGroups, allImages.length);
+
+    // กรองและเรียงหน้า
+    applyGroupSelection();
+
     if (!pages.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง URL)");
-    cur = Math.min(initCur, Math.max(pages.length - 1, 0)); initCur = 0; buildSpreads(); $("msg").style.display = "none"; render();
+    cur = Math.min(initCur, Math.max(pages.length - 1, 0));
+    initCur = 0;
+    buildSpreads();
+    $("msg").style.display = "none";
+    render();
     localStorage.setItem("lastUrl", $("url").value);
   } catch (err) {
     pages = []; spreads = []; render();
