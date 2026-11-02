@@ -22,7 +22,9 @@
   #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
   #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
   #msg { position: absolute; color: #aaa; }
-  #bar { padding: 6px; text-align: center; background: #1e1e1e; font-size: 14px; }
+  #bar { padding: 6px; text-align: center; background: #1e1e1e; font-size: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #pageToggle { padding: 3px 10px; font-size: 13px; background: #2b5c8f; color: #fff; border: 1px solid #3d7ab8; border-radius: 4px; }
+  #pageToggle:hover { background: #366fa8; }
   label { font-size: 13px; }
   /* โหมดเต็มจอ: ซ่อนแถบควบคุมให้ภาพใหญ่สุด (กด Esc หรือ F เพื่อออก) */
   :fullscreen form, :fullscreen #bar { display: none; }
@@ -33,6 +35,10 @@
   <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
   <select id="groupSelect" style="display: none;" title="ตัวกรองกลุ่มรูปภาพ"></select>
   <input type="text" id="pattern" placeholder="กรอง URL (regex)">
+  <select id="defaultMode" title="โหมดแสดงผลเริ่มต้น">
+    <option value="double">เริ่มต้น: หน้าคู่</option>
+    <option value="single">เริ่มต้น: หน้าเดี่ยว</option>
+  </select>
   <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
   <label><input type="checkbox" id="proxy" checked> โหลดผ่านเซิร์ฟเวอร์</label>
   <button>โหลด</button>
@@ -44,12 +50,19 @@
   <div class="zone" id="next" title="หน้าถัดไป"></div>
   <div class="zone" id="prev" title="ย้อนกลับ"></div>
 </div>
-<div id="bar">← กดฝั่งซ้าย/ปุ่ม ← = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/ปุ่ม → = ย้อนกลับ &nbsp;|&nbsp; <span id="pos"></span></div>
+<div id="bar">
+  <span>← กดฝั่งซ้าย/ปุ่ม ← = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/ปุ่ม → = ย้อนกลับ</span>
+  <span>|</span>
+  <span id="pos"></span>
+  <button type="button" id="pageToggle" style="display: none;" title="สลับหน้าเดี่ยว/หน้าคู่สำหรับหน้านี้ (กด S หรือ Space)"></button>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
 let pages = [], spreads = [], cur = 0, initCur = 0;
 let allImages = [], detectedGroups = [];
+// เก็บการตั้งค่าหน้าเดี่ยว (1) หรือหน้าคู่ (2) ของแต่ละ index หน้า (เช่น { 0: 1, 5: 1 })
+let pageModes = {};
 
 // เรียงตามเลขท้ายชื่อไฟล์ (natural sort): _2 มาก่อน _10
 const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
@@ -144,17 +157,66 @@ function applyGroupSelection() {
 
 $("groupSelect").onchange = () => {
   applyGroupSelection();
+  pageModes = {};
   cur = 0;
   buildSpreads();
   render();
 };
 
-function buildSpreads() {
+function getSpreadStartIndex(spreadIdx) {
+  let idx = 0;
+  for (let k = 0; k < spreadIdx && k < spreads.length; k++) {
+    idx += spreads[k].length;
+  }
+  return idx;
+}
+
+function getEffectiveMode(pageIndex) {
+  if (pageModes[pageIndex] === 1 || pageModes[pageIndex] === 2) {
+    return pageModes[pageIndex];
+  }
+  if (pageIndex === 0 && $("cover").checked) return 1;
+  return $("defaultMode").value === "single" ? 1 : 2;
+}
+
+function buildSpreads(keepPageIndex = null) {
+  if (keepPageIndex === null && spreads.length && cur < spreads.length) {
+    keepPageIndex = getSpreadStartIndex(cur);
+  }
   spreads = [];
   let i = 0;
-  if ($("cover").checked && pages.length) spreads.push([pages[i++]]);
-  while (i < pages.length) spreads.push(pages.slice(i, i += 2));
-  cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+  let newCur = 0;
+  while (i < pages.length) {
+    const startIdx = i;
+    const mode = getEffectiveMode(i);
+    const count = (mode === 1 || i + 1 >= pages.length) ? 1 : 2;
+    spreads.push(pages.slice(i, i + count));
+    if (keepPageIndex !== null && keepPageIndex >= startIdx && keepPageIndex < startIdx + count) {
+      newCur = spreads.length - 1;
+    }
+    i += count;
+  }
+  if (keepPageIndex !== null) {
+    cur = newCur;
+  } else {
+    cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+  }
+}
+
+function toggleCurrentPageMode() {
+  if (!spreads.length) return;
+  const startIdx = getSpreadStartIndex(cur);
+  const currentLen = spreads[cur].length;
+  // สลับระหว่าง 1 (หน้าเดี่ยว) กับ 2 (หน้าคู่: เอาภาพถัดไปมาต่อ)
+  // กรณีอยู่หน้าสุดท้ายและมีแค่ 1 รูป แต่โหมดเป็น 2 อยู่แล้ว ให้สลับตามค่าโหมด
+  const currentMode = getEffectiveMode(startIdx);
+  const nextMode = (currentLen === 1 && currentMode === 1) ? 2 : 1;
+  pageModes[startIdx] = nextMode;
+  if (startIdx === 0) {
+    $("cover").checked = (nextMode === 1);
+  }
+  buildSpreads(startIdx);
+  render();
 }
 
 const src = u => $("proxy").checked ? "/proxy?url=" + encodeURIComponent(u) : u;
@@ -162,15 +224,37 @@ const src = u => $("proxy").checked ? "/proxy?url=" + encodeURIComponent(u) : u;
 function render() {
   const v = $("viewer");
   v.querySelectorAll("img").forEach(e => e.remove());
-  if (!spreads.length) return;
+  const toggleBtn = $("pageToggle");
+  if (!spreads.length) {
+    $("pos").textContent = "";
+    toggleBtn.style.display = "none";
+    return;
+  }
   const s = spreads[cur];
+  const startIdx = getSpreadStartIndex(cur);
   v.classList.toggle("single", s.length === 1);
   // row-reverse: รูปแรกใน DOM อยู่ขวาสุด (หน้าก่อนหน้าอยู่ขวา หน้าถัดไปอยู่ซ้าย)
   s.forEach(u => { const im = new Image(); im.src = src(u); v.appendChild(im); });
   // preload spread ถัดไป
   (spreads[cur + 1] || []).forEach(u => { new Image().src = src(u); });
-  const shown = spreads.slice(0, cur + 1).reduce((n, x) => n + x.length, 0);
-  $("pos").textContent = `หน้า ${shown}/${pages.length} (ชุด ${cur + 1}/${spreads.length})`;
+
+  const pageLabel = s.length === 1
+    ? `หน้า ${startIdx + 1}/${pages.length}`
+    : `หน้า ${startIdx + 1}-${startIdx + s.length}/${pages.length}`;
+  $("pos").textContent = `${pageLabel} (ชุด ${cur + 1}/${spreads.length})`;
+
+  // อัปเดตปุ่มสลับหน้าเดี่ยว/หน้าคู่สำหรับหน้าปัจจุบัน
+  toggleBtn.style.display = "inline-block";
+  const isSingle = s.length === 1;
+  const canPairNext = startIdx + 1 < pages.length;
+  if (isSingle) {
+    toggleBtn.textContent = canPairNext ? "📄 หน้าเดี่ยว (กดเพื่อต่อภาพถัดไปเป็นหน้าคู่)" : "📄 หน้าเดี่ยว (หน้าสุดท้าย)";
+    toggleBtn.disabled = !canPairNext;
+  } else {
+    toggleBtn.textContent = "📖 หน้าคู่ (กดเพื่อแยกเป็นหน้าเดี่ยว)";
+    toggleBtn.disabled = false;
+  }
+
   // เก็บ URL + ตำแหน่งหน้าไว้ใน query string เพื่อ bookmark ได้
   const q = new URLSearchParams({ url: $("url").value });
   if (cur > 0) q.set("p", cur);
@@ -180,6 +264,7 @@ function render() {
 const go = d => { const n = cur + d; if (n >= 0 && n < spreads.length) { cur = n; render(); } };
 $("next").onclick = () => go(1);
 $("prev").onclick = () => go(-1);
+$("pageToggle").onclick = toggleCurrentPageMode;
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
@@ -188,10 +273,23 @@ $("fs").onclick = toggleFullscreen;
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.key === "f" || e.key === "F") toggleFullscreen();
+  if (e.key === "s" || e.key === "S" || e.key === " ") {
+    e.preventDefault();
+    toggleCurrentPageMode();
+  }
   if (e.key === "ArrowLeft") go(1);
   if (e.key === "ArrowRight") go(-1);
 });
-$("cover").onchange = () => { buildSpreads(); render(); };
+$("cover").onchange = () => {
+  delete pageModes[0];
+  buildSpreads();
+  render();
+};
+$("defaultMode").onchange = () => {
+  pageModes = {};
+  buildSpreads();
+  render();
+};
 $("proxy").onchange = render;
 
 async function loadChapter() {
@@ -218,9 +316,11 @@ async function loadChapter() {
     applyGroupSelection();
 
     if (!pages.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง URL)");
+    pageModes = {};
     cur = Math.min(initCur, Math.max(pages.length - 1, 0));
     initCur = 0;
-    buildSpreads();
+    buildSpreads(null);
+    cur = Math.min(cur, Math.max(spreads.length - 1, 0));
     $("msg").style.display = "none";
     render();
     localStorage.setItem("lastUrl", $("url").value);
