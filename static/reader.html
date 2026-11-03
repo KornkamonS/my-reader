@@ -16,10 +16,10 @@
   button { padding: 6px 12px; cursor: pointer; }
   #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
             justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none;
-            touch-action: none; }
-  #viewer img { max-width: 50%; max-height: 100%; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
+            touch-action: none; padding: 12px min(48px, 6vw); gap: 12px; }
+  #viewer img { max-width: calc(50% - 6px); max-height: 100%; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
   #viewer.single img { max-width: 100%; }
-  .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; }
+  .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; z-index: 5; touch-action: none; }
   #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
   #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
   #msg { position: absolute; color: #aaa; }
@@ -283,33 +283,32 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     toggleCurrentPageMode();
   }
-  if (e.key === "ArrowLeft" || e.key === "ArrowUp") go(1);
-  if (e.key === "ArrowRight" || e.key === "ArrowDown") go(-1);
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageDown") {
+    e.preventDefault();
+    go(1);
+  }
+  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "PageUp") {
+    e.preventDefault();
+    go(-1);
+  }
 });
 
-// รองรับ Swipe Gesture: ซ้าย/ขึ้น = ถัดไป, ขวา/ลง = ย้อนกลับ
+// รองรับ Swipe Gesture และการเลื่อนหน้า: ซ้าย/ขึ้น = ถัดไป, ขวา/ลง = ย้อนกลับ
 let startX = 0, startY = 0, isTracking = false, swiped = false;
 const viewer = $("viewer");
 
-viewer.addEventListener("pointerdown", e => {
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
-  startX = e.clientX;
-  startY = e.clientY;
-  isTracking = true;
-});
-
-window.addEventListener("pointerup", e => {
+function handleSwipeEnd(endX, endY) {
   if (!isTracking) return;
   isTracking = false;
-  const dx = e.clientX - startX;
-  const dy = e.clientY - startY;
+  const dx = endX - startX;
+  const dy = endY - startY;
   const absX = Math.abs(dx);
   const absY = Math.abs(dy);
-  const minDistance = 40;
+  const minDistance = 30; // ไวขึ้นเล็กน้อยเพื่อให้ปัดง่าย
 
   if (Math.max(absX, absY) >= minDistance) {
     swiped = true;
-    setTimeout(() => { swiped = false; }, 300);
+    setTimeout(() => { swiped = false; }, 350);
 
     if (absX >= absY) {
       if (dx < 0) go(1);   // ปัดซ้าย = ถัดไป
@@ -319,18 +318,73 @@ window.addEventListener("pointerup", e => {
       else go(-1);        // ปัดลง = ย้อนกลับ
     }
   }
-});
+}
 
-window.addEventListener("pointercancel", () => {
+// 1. Touch Events สำหรับจอมือถือ / แท็บเล็ต (พร้อม preventDefault ป้องกัน overscroll/pull-to-refresh)
+viewer.addEventListener("touchstart", e => {
+  if (e.touches.length !== 1) { isTracking = false; return; }
+  const t = e.touches[0];
+  startX = t.clientX;
+  startY = t.clientY;
+  isTracking = true;
+}, { passive: true });
+
+viewer.addEventListener("touchmove", e => {
+  if (!isTracking) return;
+  if (e.cancelable) e.preventDefault();
+}, { passive: false });
+
+viewer.addEventListener("touchend", e => {
+  if (!isTracking) return;
+  const t = e.changedTouches[0];
+  handleSwipeEnd(t.clientX, t.clientY);
+}, { passive: true });
+
+viewer.addEventListener("touchcancel", () => {
   isTracking = false;
 });
 
+// 2. Pointer Events สำหรับคลิกลากด้วยเมาส์ (Desktop)
+viewer.addEventListener("pointerdown", e => {
+  if (e.pointerType === "touch") return; // Touch จัดการผ่าน touchstart แล้ว
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
+  startX = e.clientX;
+  startY = e.clientY;
+  isTracking = true;
+});
+
+window.addEventListener("pointerup", e => {
+  if (e.pointerType === "touch" || !isTracking) return;
+  handleSwipeEnd(e.clientX, e.clientY);
+});
+
+window.addEventListener("pointercancel", e => {
+  if (e.pointerType === "touch") return;
+  isTracking = false;
+});
+
+// 3. ป้องกันการเกิด Click ซ้ำหลังปัดหน้าจอ (Ghost Click)
 viewer.addEventListener("click", e => {
   if (swiped) {
     e.stopImmediatePropagation();
     e.preventDefault();
   }
 }, true);
+
+// 4. รองรับ Mouse Wheel / Trackpad Scroll สำหรับเลื่อนหน้า
+let wheelCooldown = false;
+viewer.addEventListener("wheel", e => {
+  if (e.ctrlKey) return;
+  e.preventDefault();
+  if (wheelCooldown) return;
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (Math.abs(delta) > 20) {
+    wheelCooldown = true;
+    if (delta > 0) go(1);  // เลื่อนลง/ขวา = ถัดไป
+    else go(-1);          // เลื่อนขึ้น/ซ้าย = ย้อนกลับ
+    setTimeout(() => { wheelCooldown = false; }, 250);
+  }
+}, { passive: false });
 $("cover").onchange = () => {
   delete pageModes[0];
   buildSpreads();
