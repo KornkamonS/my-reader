@@ -12,13 +12,14 @@
   body.light { --bg:#fff; --fg:#222; --panel:#eee; --border:#ccc; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--fg); font-family: sans-serif;
-         display: flex; flex-direction: column; overflow: hidden; }
-  #top { display: flex; gap: 8px; padding: 8px; background: var(--panel); flex-wrap: wrap; align-items: center; }
+         height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  #top { display: flex; gap: 8px; padding: 8px; background: var(--panel); flex-wrap: wrap; align-items: center; flex-shrink: 0; z-index: 10; }
   #top input[type=text] { flex: 1; min-width: 180px; padding: 6px; background: var(--bg); color: var(--fg);
                           border: 1px solid var(--border); border-radius: 4px; }
   button, select { padding: 6px 12px; cursor: pointer; background: var(--bg); color: var(--fg);
                    border: 1px solid var(--border); border-radius: 4px; }
-  #stage { flex: 1; position: relative; min-height: 0; padding: 16px var(--mx) 8px; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #stage { flex: 1; position: relative; min-height: 0; padding: 16px var(--mx) 8px; overflow: hidden; }
   #viewport { width: 100%; height: 100%; overflow: hidden; position: relative; }
   #book { height: 100%; font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
           transition: transform .25s ease; will-change: transform; text-align: justify; hyphens: auto; }
@@ -29,8 +30,9 @@
          text-align: center; opacity: .7; pointer-events: none; padding: 20px; }
   .zone { position: absolute; top: 0; bottom: 0; z-index: 2; }
   #zl { left: 0; width: 30%; } #zc { left: 30%; width: 40%; } #zr { right: 0; width: 30%; }
-  #bar { padding: 6px 10px; text-align: center; background: var(--panel); font-size: 13px;
-         display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  #bar { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); text-align: center; background: var(--panel); font-size: 13px;
+         display: flex; justify-content: center; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; z-index: 5; border-top: 1px solid var(--border); }
+  #bar button { padding: 4px 10px; font-size: 13px; touch-action: manipulation; }
   #progress { height: 3px; background: var(--accent); width: 0; transition: width .2s; }
   #settings { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--border);
               padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); z-index: 10; display: none;
@@ -40,7 +42,9 @@
   .row > span:first-child { width: 90px; flex: none; }
   .row .val { width: 48px; text-align: center; flex: none; }
   .row input[type=range] { flex: 1; }
-  body.hide-ui #top, body.hide-ui #bar { display: none; }
+  body.hide-ui #top, body.hide-ui #bar,
+  :fullscreen #top, :fullscreen #bar,
+  :-webkit-full-screen #top, :-webkit-full-screen #bar { display: none; }
 </style>
 </head>
 <body>
@@ -61,7 +65,14 @@
   <div class="zone" id="zc" title="แตะกลางจอ = แสดง/ซ่อนเมนู"></div>
   <div class="zone" id="zr" title="หน้าถัดไป"></div>
 </div>
-<div id="bar"><span id="pos"></span><span>แตะ/ปัด ซ้าย-ขวา เพื่อเปลี่ยนหน้า • แตะกลาง = เมนู</span></div>
+<div id="bar">
+  <button type="button" id="barPrevCh" title="ตอนก่อนหน้า">⏮ ตอนก่อน</button>
+  <button type="button" id="barPrev" title="หน้าก่อนหน้า">◀ หน้าก่อน</button>
+  <span id="pos"></span>
+  <button type="button" id="barNext" title="หน้าถัดไป">หน้าถัดไป ▶</button>
+  <button type="button" id="barNextCh" title="ตอนถัดไป">ตอนถัดไป ⏭</button>
+  <button type="button" id="barSetBtn" title="ตั้งค่าตัวอักษร">Aa</button>
+</div>
 
 <div id="settings">
   <div class="row"><span>ขนาดตัวอักษร</span><button type="button" data-k="fs" data-d="-1">A−</button>
@@ -125,6 +136,8 @@ function show() {
   $("book").style.transform = `translateX(${-page * step}px)`;
   $("pos").textContent = data ? `หน้า ${page + 1}/${pages}` : "";
   $("progress").style.width = pages > 1 ? (page / (pages - 1)) * 100 + "%" : "100%";
+  if ($("barPrev")) $("barPrev").disabled = page <= 0 && (!data || !data.prev);
+  if ($("barNext")) $("barNext").disabled = page >= pages - 1 && (!data || !data.next);
   if (data) localStorage.setItem("novelPos:" + data.url, page / Math.max(1, pages - 1));
 }
 
@@ -179,6 +192,11 @@ async function load(startAt = null) {
 $("zl").onclick = () => turn(-1);
 $("zr").onclick = () => turn(1);
 $("zc").onclick = () => document.body.classList.toggle("hide-ui");
+$("barPrev").onclick = () => turn(-1);
+$("barNext").onclick = () => turn(1);
+$("barPrevCh").onclick = () => gotoChapter("prev");
+$("barNextCh").onclick = () => gotoChapter("next");
+$("barSetBtn").onclick = () => $("settings").classList.toggle("open");
 $("top").onsubmit = e => { e.preventDefault(); load(); };
 $("prevch").onclick = () => gotoChapter("prev");
 $("nextch").onclick = () => gotoChapter("next");

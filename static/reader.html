@@ -2,33 +2,40 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Manga Reader</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #111; color: #eee; font-family: sans-serif;
-         height: 100vh; display: flex; flex-direction: column; }
-  form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #111; color: #eee; font-family: sans-serif;
+         height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; flex-shrink: 0; z-index: 10; }
   input[type=text], select { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
   #url { flex: 1; min-width: 220px; }
   #groupSelect { max-width: 280px; font-size: 13px; font-weight: bold; background: #1a3045; border-color: #2b5c8f; }
   #pattern { width: 130px; }
-  button { padding: 6px 12px; cursor: pointer; }
+  button { padding: 6px 12px; cursor: pointer; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #eee; }
+  button:hover:not(:disabled) { background: #383838; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
   #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
             justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none;
-            touch-action: none; padding: 12px min(48px, 6vw); gap: 12px; }
+            touch-action: none; padding: 12px min(48px, 6vw); gap: 12px; overflow: hidden; }
   #viewer img { max-width: calc(50% - 6px); max-height: 100%; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
   #viewer.single img { max-width: 100%; }
   .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; z-index: 5; touch-action: none; }
   #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
   #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
   #msg { position: absolute; color: #aaa; }
-  #bar { padding: 6px; text-align: center; background: #1e1e1e; font-size: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #pageToggle { padding: 3px 10px; font-size: 13px; background: #2b5c8f; color: #fff; border: 1px solid #3d7ab8; border-radius: 4px; }
-  #pageToggle:hover { background: #366fa8; }
+  #bar { padding: 6px 12px calc(6px + env(safe-area-inset-bottom)); text-align: center; background: #1e1e1e;
+         font-size: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap;
+         position: relative; z-index: 20; flex-shrink: 0; border-top: 1px solid #333; }
+  #bar button { padding: 5px 12px; font-size: 13px; touch-action: manipulation; }
+  #pageToggle { background: #2b5c8f; color: #fff; border: 1px solid #3d7ab8; }
+  #pageToggle:hover:not(:disabled) { background: #366fa8; }
   label { font-size: 13px; }
-  /* โหมดเต็มจอ: ซ่อนแถบควบคุมให้ภาพใหญ่สุด (กด Esc หรือ F เพื่อออก) */
-  :fullscreen form, :fullscreen #bar { display: none; }
+  /* โหมดเต็มจอ: ซ่อนแถบควบคุมและปุ่มทั้งหมดเพื่อให้รูปภาพแสดงเต็มหน้าจอ 100% ไม่มีอะไรบัง (กด Esc หรือ F เพื่อออก) */
+  :fullscreen form, :fullscreen #bar,
+  :-webkit-full-screen form, :-webkit-full-screen #bar { display: none; }
 </style>
 </head>
 <body>
@@ -53,9 +60,11 @@
   <div class="zone" id="prev" title="ย้อนกลับ"></div>
 </div>
 <div id="bar">
-  <span>← กดฝั่งซ้าย/←/ปัดซ้ายหรือขึ้น = ถัดไป &nbsp;|&nbsp; กดฝั่งขวา/→/ปัดขวาหรือลง = ย้อนกลับ</span>
-  <span>|</span>
+  <button type="button" id="barPrevCh" title="ตอนก่อนหน้า">⏮ ตอนก่อน</button>
+  <button type="button" id="barPrev" title="หน้าก่อนหน้า (ย้อนกลับ)">◀ หน้าก่อน</button>
   <span id="pos"></span>
+  <button type="button" id="barNext" title="หน้าถัดไป">หน้าถัดไป ▶</button>
+  <button type="button" id="barNextCh" title="ตอนถัดไป">ตอนถัดไป ⏭</button>
   <button type="button" id="pageToggle" style="display: none;" title="สลับหน้าเดี่ยว/หน้าคู่สำหรับหน้านี้ (กด S หรือ Space)"></button>
 </div>
 
@@ -230,6 +239,8 @@ function render() {
   if (!spreads.length) {
     $("pos").textContent = "";
     toggleBtn.style.display = "none";
+    if ($("barPrev")) $("barPrev").disabled = true;
+    if ($("barNext")) $("barNext").disabled = true;
     return;
   }
   const s = spreads[cur];
@@ -257,6 +268,9 @@ function render() {
     toggleBtn.disabled = false;
   }
 
+  if ($("barPrev")) $("barPrev").disabled = (cur <= 0);
+  if ($("barNext")) $("barNext").disabled = (cur >= spreads.length - 1);
+
   // เก็บ URL + ตำแหน่งหน้าไว้ใน query string เพื่อ bookmark ได้
   const q = new URLSearchParams({ url: $("url").value });
   if (cur > 0) q.set("p", cur);
@@ -266,6 +280,10 @@ function render() {
 const go = d => { const n = cur + d; if (n >= 0 && n < spreads.length) { cur = n; render(); } };
 $("next").onclick = () => go(1);
 $("prev").onclick = () => go(-1);
+$("barPrev").onclick = () => go(-1);
+$("barNext").onclick = () => go(1);
+$("barPrevCh").onclick = () => $("prevch").click();
+$("barNextCh").onclick = () => $("nextch").click();
 $("pageToggle").onclick = toggleCurrentPageMode;
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
