@@ -1,484 +1,747 @@
 <!DOCTYPE html>
 <html lang="th">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Manga Reader</title>
-<style>
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body { background: #111; color: #eee; font-family: sans-serif;
-         height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
-  form { display: flex; gap: 8px; padding: 8px; background: #1e1e1e; flex-wrap: wrap; align-items: center; flex-shrink: 0; z-index: 10; }
-  input[type=text], select { padding: 6px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; }
-  #url { flex: 1; min-width: 220px; }
-  #groupSelect { max-width: 280px; font-size: 13px; font-weight: bold; background: #1a3045; border-color: #2b5c8f; }
-  #pattern { width: 130px; }
-  button { padding: 6px 12px; cursor: pointer; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #eee; }
-  button:hover:not(:disabled) { background: #383838; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  #viewer { flex: 1; display: flex; flex-direction: row-reverse; /* ขวา -> ซ้าย */
-            justify-content: center; align-items: center; min-height: 0; position: relative; user-select: none;
-            touch-action: none; padding: 12px min(48px, 6vw); gap: 12px; overflow: hidden; }
-  #viewer img { max-width: calc(50% - 6px); max-height: 100%; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
-  #viewer.single img { max-width: 100%; }
-  .zone { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; z-index: 5; touch-action: none; }
-  #next { left: 0; }   /* กดฝั่งซ้าย = หน้าถัดไป */
-  #prev { right: 0; }  /* กดฝั่งขวา = ย้อนกลับ */
-  #msg { position: absolute; color: #aaa; }
-  #bar { padding: 6px 12px calc(6px + env(safe-area-inset-bottom)); text-align: center; background: #1e1e1e;
-         font-size: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap;
-         position: relative; z-index: 20; flex-shrink: 0; border-top: 1px solid #333; }
-  #bar button { padding: 5px 12px; font-size: 13px; touch-action: manipulation; }
-  #pageToggle { background: #2b5c8f; color: #fff; border: 1px solid #3d7ab8; }
-  #pageToggle:hover:not(:disabled) { background: #366fa8; }
-  label { font-size: 13px; }
-  /* โหมดเต็มจอ: ซ่อนแถบควบคุมและปุ่มทั้งหมดเพื่อให้รูปภาพแสดงเต็มหน้าจอ 100% ไม่มีอะไรบัง (กด Esc หรือ F เพื่อออก) */
-  :fullscreen form, :fullscreen #bar,
-  :-webkit-full-screen form, :-webkit-full-screen #bar { display: none; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Manga Reader</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: #111;
+      color: #eee;
+      font-family: sans-serif;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    form {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      background: #1e1e1e;
+      flex-wrap: wrap;
+      align-items: center;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    input[type=text],
+    select {
+      padding: 6px;
+      background: #2a2a2a;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+
+    #url {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    #groupSelect {
+      max-width: 280px;
+      font-size: 13px;
+      font-weight: bold;
+      background: #1a3045;
+      border-color: #2b5c8f;
+    }
+
+    #pattern {
+      width: 130px;
+    }
+
+    button {
+      padding: 6px 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #eee;
+    }
+
+    button:hover:not(:disabled) {
+      background: #383838;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    #viewer {
+      flex: 1;
+      display: flex;
+      flex-direction: row-reverse;
+      /* ขวา -> ซ้าย */
+      justify-content: center;
+      align-items: center;
+      min-height: 0;
+      position: relative;
+      user-select: none;
+      touch-action: none;
+      padding: 12px min(48px, 6vw);
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    #viewer img {
+      max-width: calc(50% - 6px);
+      max-height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+      -webkit-user-drag: none;
+      user-drag: none;
+    }
+
+    #viewer.single img {
+      max-width: 100%;
+    }
+
+    .zone {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 50%;
+      cursor: pointer;
+      z-index: 5;
+      touch-action: none;
+    }
+
+    #next {
+      left: 0;
+    }
+
+    /* กดฝั่งซ้าย = หน้าถัดไป */
+    #prev {
+      right: 0;
+    }
+
+    /* กดฝั่งขวา = ย้อนกลับ */
+    #msg {
+      position: absolute;
+      color: #aaa;
+    }
+
+    #bar {
+      padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+      text-align: center;
+      background: #1e1e1e;
+      font-size: 14px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 20;
+      flex-shrink: 0;
+      border-top: 1px solid #333;
+    }
+
+    #bar button {
+      padding: 5px 12px;
+      font-size: 13px;
+      touch-action: manipulation;
+    }
+
+    #pageToggle {
+      background: #2b5c8f;
+      color: #fff;
+      border: 1px solid #3d7ab8;
+    }
+
+    #pageToggle:hover:not(:disabled) {
+      background: #366fa8;
+    }
+
+    label {
+      font-size: 13px;
+    }
+
+    /* โหมดเต็มจอ: ซ่อนแถบควบคุมและปุ่มทั้งหมดเพื่อให้รูปภาพแสดงเต็มหน้าจอ 100% ไม่มีอะไรบัง (กด Esc หรือ F เพื่อออก) */
+    :fullscreen form,
+    :fullscreen #bar,
+    :-webkit-full-screen form,
+    :-webkit-full-screen #bar {
+      display: none;
+    }
+
+    /* โหมดเต็มจอ: ซ่อนแถบควบคุมและปุ่มทั้งหมด แสดงรูปเต็มจอ 100% ไม่มี margin, padding, หรือปุ่มใด ๆ (กด Esc หรือ F เพื่อออก) */
+    :fullscreen form,
+    :fullscreen #bar,
+    :fullscreen button,
+    :-webkit-full-screen form,
+    :-webkit-full-screen #bar,
+    :-webkit-full-screen button,
+    html.fullscreen form,
+    html.fullscreen #bar,
+    html.fullscreen button,
+    body.fullscreen form,
+    body.fullscreen #bar,
+    body.fullscreen button {
+      display: none !important;
+    }
+
+    :fullscreen,
+    :-webkit-full-screen,
+    html.fullscreen,
+    body.fullscreen {
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    :fullscreen #viewer,
+    :-webkit-full-screen #viewer,
+    html.fullscreen #viewer,
+    body.fullscreen #viewer {
+      padding: 0 !important;
+      margin: 0 !important;
+      gap: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      height: 100dvh !important;
+    }
+
+    :fullscreen #viewer img,
+    :-webkit-full-screen #viewer img,
+    html.fullscreen #viewer img,
+    body.fullscreen #viewer img {
+      max-width: 50% !important;
+      max-height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    :fullscreen #viewer.single img,
+    :-webkit-full-screen #viewer.single img,
+    html.fullscreen #viewer.single img,
+    body.fullscreen #viewer.single img {
+      max-width: 100% !important;
+      max-height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    @media (display-mode: fullscreen) {
+
+      form,
+      #bar,
+      button {
+        display: none !important;
+      }
+
+      html,
+      body {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      #viewer {
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+      }
+
+      #viewer img {
+        max-width: 50% !important;
+        max-height: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      #viewer.single img {
+        max-width: 100% !important;
+        max-height: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+    }
+  </style>
 </head>
+
 <body>
-<form id="form">
-  <button type="button" id="homeBtn" title="เปิดลิงก์ในแท็บใหม่">🏠 Home</button>
-  <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
-  <select id="groupSelect" style="display: none;" title="ตัวกรองกลุ่มรูปภาพ"></select>
-  <input type="text" id="pattern" placeholder="กรอง URL (regex)">
-  <select id="defaultMode" title="โหมดแสดงผลเริ่มต้น">
-    <option value="double">เริ่มต้น: หน้าคู่</option>
-    <option value="single">เริ่มต้น: หน้าเดี่ยว</option>
-  </select>
-  <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
-  <label><input type="checkbox" id="proxy" checked> โหลดผ่านเซิร์ฟเวอร์</label>
-  <button>โหลด</button>
-  <button type="button" id="prevch" title="ไปตอนก่อนหน้า">◀ ตอนก่อนหน้า</button>
-  <button type="button" id="nextch" title="ไปตอนถัดไป">ตอนถัดไป ▶</button>
-  <button type="button" id="fs" title="เต็มจอ (กด F)">⛶ เต็มจอ</button>
-</form>
-<div id="viewer"><span id="msg">ใส่ URL แล้วกด "โหลด"</span>
-  <div class="zone" id="next" title="หน้าถัดไป"></div>
-  <div class="zone" id="prev" title="ย้อนกลับ"></div>
-</div>
-<div id="bar">
-  <button type="button" id="barPrevCh" title="ตอนก่อนหน้า">⏮ ตอนก่อน</button>
-  <button type="button" id="barPrev" title="หน้าก่อนหน้า (ย้อนกลับ)">◀ หน้าก่อน</button>
-  <span id="pos"></span>
-  <button type="button" id="barNext" title="หน้าถัดไป">หน้าถัดไป ▶</button>
-  <button type="button" id="barNextCh" title="ตอนถัดไป">ตอนถัดไป ⏭</button>
-  <button type="button" id="pageToggle" style="display: none;" title="สลับหน้าเดี่ยว/หน้าคู่สำหรับหน้านี้ (กด S หรือ Space)"></button>
-</div>
+  <form id="form">
+    <button type="button" id="homeBtn" title="เปิดลิงก์ในแท็บใหม่">🏠 Home</button>
+    <input type="text" id="url" placeholder="URL หน้าตอนมังงะ" required>
+    <select id="groupSelect" style="display: none;" title="ตัวกรองกลุ่มรูปภาพ"></select>
+    <input type="text" id="pattern" placeholder="กรอง URL (regex)">
+    <select id="defaultMode" title="โหมดแสดงผลเริ่มต้น">
+      <option value="double">เริ่มต้น: หน้าคู่</option>
+      <option value="single">เริ่มต้น: หน้าเดี่ยว</option>
+    </select>
+    <label><input type="checkbox" id="cover" checked> หน้าแรกเดี่ยว</label>
+    <label><input type="checkbox" id="proxy" checked> โหลดผ่านเซิร์ฟเวอร์</label>
+    <button>โหลด</button>
+    <button type="button" id="prevch" title="ไปตอนก่อนหน้า">◀ ตอนก่อนหน้า</button>
+    <button type="button" id="nextch" title="ไปตอนถัดไป">ตอนถัดไป ▶</button>
+    <button type="button" id="fs" title="เต็มจอ (กด F)">⛶ เต็มจอ</button>
+  </form>
+  <div id="viewer"><span id="msg">ใส่ URL แล้วกด "โหลด"</span>
+    <div class="zone" id="next" title="หน้าถัดไป"></div>
+    <div class="zone" id="prev" title="ย้อนกลับ"></div>
+  </div>
+  <div id="bar">
+    <button type="button" id="barPrevCh" title="ตอนก่อนหน้า">⏮ ตอนก่อน</button>
+    <button type="button" id="barPrev" title="หน้าก่อนหน้า (ย้อนกลับ)">◀ หน้าก่อน</button>
+    <span id="pos"></span>
+    <button type="button" id="barNext" title="หน้าถัดไป">หน้าถัดไป ▶</button>
+    <button type="button" id="barNextCh" title="ตอนถัดไป">ตอนถัดไป ⏭</button>
+    <button type="button" id="pageToggle" style="display: none;"
+      title="สลับหน้าเดี่ยว/หน้าคู่สำหรับหน้านี้ (กด S หรือ Space)"></button>
+  </div>
 
-<script>
-const $ = id => document.getElementById(id);
-let pages = [], spreads = [], cur = 0, initCur = 0;
-let allImages = [], detectedGroups = [];
-// เก็บการตั้งค่าหน้าเดี่ยว (1) หรือหน้าคู่ (2) ของแต่ละ index หน้า (เช่น { 0: 1, 5: 1 })
-let pageModes = {};
+  <script>
+    const $ = id => document.getElementById(id);
+    let pages = [], spreads = [], cur = 0, initCur = 0;
+    let allImages = [], detectedGroups = [];
+    // เก็บการตั้งค่าหน้าเดี่ยว (1) หรือหน้าคู่ (2) ของแต่ละ index หน้า (เช่น { 0: 1, 5: 1 })
+    let pageModes = {};
 
-// เรียงตามเลขท้ายชื่อไฟล์ (natural sort): _2 มาก่อน _10
-const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+    // เรียงตามเลขท้ายชื่อไฟล์ (natural sort): _2 มาก่อน _10
+    const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
 
-function extractGroupsClient(images) {
-  const grps = {};
-  for (const item of images) {
-    const u = typeof item === "string" ? item : item.url;
-    try {
-      const urlObj = new URL(u);
-      const p = urlObj.pathname;
-      const m = p.match(/^(.*?)(\d+)(\.[a-zA-Z0-9]+(?:[?#].*)?)$/);
-      if (m) {
-        const prefix = m[1];
-        const namePart = prefix.replace(/\/$/, "").split("/").pop() || prefix;
-        const cleanName = namePart.replace(/^[-_]+|[-_]+$/g, "") || namePart;
-        const key = urlObj.origin + prefix + "*" + m[3];
-        if (!grps[key]) grps[key] = { name: cleanName, pattern: cleanName, count: 0, sample: u, urls: [] };
-        grps[key].count++;
-        grps[key].urls.push(u);
-      } else {
-        const dir = p.substring(0, p.lastIndexOf("/") + 1);
-        const dirName = dir.replace(/\/$/, "").split("/").pop() || "other";
-        const key = urlObj.origin + dir;
-        if (!grps[key]) grps[key] = { name: dirName, pattern: dirName, count: 0, sample: u, urls: [] };
-        grps[key].count++;
-        grps[key].urls.push(u);
+    function extractGroupsClient(images) {
+      const grps = {};
+      for (const item of images) {
+        const u = typeof item === "string" ? item : item.url;
+        try {
+          const urlObj = new URL(u);
+          const p = urlObj.pathname;
+          const m = p.match(/^(.*?)(\d+)(\.[a-zA-Z0-9]+(?:[?#].*)?)$/);
+          if (m) {
+            const prefix = m[1];
+            const namePart = prefix.replace(/\/$/, "").split("/").pop() || prefix;
+            const cleanName = namePart.replace(/^[-_]+|[-_]+$/g, "") || namePart;
+            const key = urlObj.origin + prefix + "*" + m[3];
+            if (!grps[key]) grps[key] = { name: cleanName, pattern: cleanName, count: 0, sample: u, urls: [] };
+            grps[key].count++;
+            grps[key].urls.push(u);
+          } else {
+            const dir = p.substring(0, p.lastIndexOf("/") + 1);
+            const dirName = dir.replace(/\/$/, "").split("/").pop() || "other";
+            const key = urlObj.origin + dir;
+            if (!grps[key]) grps[key] = { name: dirName, pattern: dirName, count: 0, sample: u, urls: [] };
+            grps[key].count++;
+            grps[key].urls.push(u);
+          }
+        } catch (e) { }
       }
-    } catch (e) {}
-  }
-  return Object.values(grps).sort((a, b) => b.count - a.count);
-}
-
-function updateGroupDropdown(groups, totalCount) {
-  const sel = $("groupSelect");
-  sel.innerHTML = "";
-
-  if (!groups || groups.length <= 1) {
-    sel.style.display = "none";
-    return;
-  }
-
-  sel.style.display = "inline-block";
-
-  // ตัวเลือกกลุ่มหลัก (กลุ่มที่มีจำนวนรูปมากที่สุด)
-  const mainGrp = groups[0];
-  const mainOpt = document.createElement("option");
-  mainOpt.value = "group:0";
-  mainOpt.textContent = `⭐ กลุ่มหลัก: ${mainGrp.name} (${mainGrp.count} หน้า)`;
-  sel.appendChild(mainOpt);
-
-  // ตัวเลือกกลุ่มอื่นๆ ที่มีรูปมากกว่า 0
-  groups.slice(1).forEach((g, idx) => {
-    if (g.count > 0) {
-      const opt = document.createElement("option");
-      opt.value = `group:${idx + 1}`;
-      opt.textContent = `กลุ่ม: ${g.name} (${g.count} รูป)`;
-      sel.appendChild(opt);
+      return Object.values(grps).sort((a, b) => b.count - a.count);
     }
-  });
 
-  // ตัวเลือกแสดงทั้งหมด
-  const allOpt = document.createElement("option");
-  allOpt.value = "all";
-  allOpt.textContent = `ทั้งหมด (${totalCount} รูป)`;
-  sel.appendChild(allOpt);
+    function updateGroupDropdown(groups, totalCount) {
+      const sel = $("groupSelect");
+      sel.innerHTML = "";
 
-  sel.value = "group:0";
-}
-
-function applyGroupSelection() {
-  const sel = $("groupSelect");
-  const val = sel.value;
-
-  if (val.startsWith("group:") && detectedGroups.length) {
-    const idx = parseInt(val.split(":")[1], 10);
-    const grp = detectedGroups[idx];
-    if (grp) {
-      if (grp.urls && grp.urls.length) {
-        pages = [...grp.urls].sort(natural);
-      } else {
-        pages = allImages
-          .filter(u => u.includes(grp.pattern) || u.includes(grp.name))
-          .sort(natural);
+      if (!groups || groups.length <= 1) {
+        sel.style.display = "none";
+        return;
       }
-      return;
+
+      sel.style.display = "inline-block";
+
+      // ตัวเลือกกลุ่มหลัก (กลุ่มที่มีจำนวนรูปมากที่สุด)
+      const mainGrp = groups[0];
+      const mainOpt = document.createElement("option");
+      mainOpt.value = "group:0";
+      mainOpt.textContent = `⭐ กลุ่มหลัก: ${mainGrp.name} (${mainGrp.count} หน้า)`;
+      sel.appendChild(mainOpt);
+
+      // ตัวเลือกกลุ่มอื่นๆ ที่มีรูปมากกว่า 0
+      groups.slice(1).forEach((g, idx) => {
+        if (g.count > 0) {
+          const opt = document.createElement("option");
+          opt.value = `group:${idx + 1}`;
+          opt.textContent = `กลุ่ม: ${g.name} (${g.count} รูป)`;
+          sel.appendChild(opt);
+        }
+      });
+
+      // ตัวเลือกแสดงทั้งหมด
+      const allOpt = document.createElement("option");
+      allOpt.value = "all";
+      allOpt.textContent = `ทั้งหมด (${totalCount} รูป)`;
+      sel.appendChild(allOpt);
+
+      sel.value = "group:0";
     }
-  }
 
-  pages = [...allImages].sort(natural);
-}
+    function applyGroupSelection() {
+      const sel = $("groupSelect");
+      const val = sel.value;
 
-$("groupSelect").onchange = () => {
-  applyGroupSelection();
-  pageModes = {};
-  cur = 0;
-  buildSpreads();
-  render();
-};
+      if (val.startsWith("group:") && detectedGroups.length) {
+        const idx = parseInt(val.split(":")[1], 10);
+        const grp = detectedGroups[idx];
+        if (grp) {
+          if (grp.urls && grp.urls.length) {
+            pages = [...grp.urls].sort(natural);
+          } else {
+            pages = allImages
+              .filter(u => u.includes(grp.pattern) || u.includes(grp.name))
+              .sort(natural);
+          }
+          return;
+        }
+      }
 
-function getSpreadStartIndex(spreadIdx) {
-  let idx = 0;
-  for (let k = 0; k < spreadIdx && k < spreads.length; k++) {
-    idx += spreads[k].length;
-  }
-  return idx;
-}
-
-function getEffectiveMode(pageIndex) {
-  if (pageModes[pageIndex] === 1 || pageModes[pageIndex] === 2) {
-    return pageModes[pageIndex];
-  }
-  if (pageIndex === 0 && $("cover").checked) return 1;
-  return $("defaultMode").value === "single" ? 1 : 2;
-}
-
-function buildSpreads(keepPageIndex = null) {
-  if (keepPageIndex === null && spreads.length && cur < spreads.length) {
-    keepPageIndex = getSpreadStartIndex(cur);
-  }
-  spreads = [];
-  let i = 0;
-  let newCur = 0;
-  while (i < pages.length) {
-    const startIdx = i;
-    const mode = getEffectiveMode(i);
-    const count = (mode === 1 || i + 1 >= pages.length) ? 1 : 2;
-    spreads.push(pages.slice(i, i + count));
-    if (keepPageIndex !== null && keepPageIndex >= startIdx && keepPageIndex < startIdx + count) {
-      newCur = spreads.length - 1;
+      pages = [...allImages].sort(natural);
     }
-    i += count;
-  }
-  if (keepPageIndex !== null) {
-    cur = newCur;
-  } else {
-    cur = Math.min(cur, Math.max(spreads.length - 1, 0));
-  }
-}
 
-function toggleCurrentPageMode() {
-  if (!spreads.length) return;
-  const startIdx = getSpreadStartIndex(cur);
-  const currentLen = spreads[cur].length;
-  // สลับระหว่าง 1 (หน้าเดี่ยว) กับ 2 (หน้าคู่: เอาภาพถัดไปมาต่อ)
-  // กรณีอยู่หน้าสุดท้ายและมีแค่ 1 รูป แต่โหมดเป็น 2 อยู่แล้ว ให้สลับตามค่าโหมด
-  const currentMode = getEffectiveMode(startIdx);
-  const nextMode = (currentLen === 1 && currentMode === 1) ? 2 : 1;
-  pageModes[startIdx] = nextMode;
-  if (startIdx === 0) {
-    $("cover").checked = (nextMode === 1);
-  }
-  buildSpreads(startIdx);
-  render();
-}
+    $("groupSelect").onchange = () => {
+      applyGroupSelection();
+      pageModes = {};
+      cur = 0;
+      buildSpreads();
+      render();
+    };
 
-const src = u => $("proxy").checked ? "/proxy?url=" + encodeURIComponent(u) : u;
+    function getSpreadStartIndex(spreadIdx) {
+      let idx = 0;
+      for (let k = 0; k < spreadIdx && k < spreads.length; k++) {
+        idx += spreads[k].length;
+      }
+      return idx;
+    }
 
-function render() {
-  const v = $("viewer");
-  v.querySelectorAll("img").forEach(e => e.remove());
-  const toggleBtn = $("pageToggle");
-  if (!spreads.length) {
-    $("pos").textContent = "";
-    toggleBtn.style.display = "none";
-    if ($("barPrev")) $("barPrev").disabled = true;
-    if ($("barNext")) $("barNext").disabled = true;
-    return;
-  }
-  const s = spreads[cur];
-  const startIdx = getSpreadStartIndex(cur);
-  v.classList.toggle("single", s.length === 1);
-  // row-reverse: รูปแรกใน DOM อยู่ขวาสุด (หน้าก่อนหน้าอยู่ขวา หน้าถัดไปอยู่ซ้าย)
-  s.forEach(u => { const im = new Image(); im.src = src(u); v.appendChild(im); });
-  // preload spread ถัดไป
-  (spreads[cur + 1] || []).forEach(u => { new Image().src = src(u); });
+    function getEffectiveMode(pageIndex) {
+      if (pageModes[pageIndex] === 1 || pageModes[pageIndex] === 2) {
+        return pageModes[pageIndex];
+      }
+      if (pageIndex === 0 && $("cover").checked) return 1;
+      return $("defaultMode").value === "single" ? 1 : 2;
+    }
 
-  const pageLabel = s.length === 1
-    ? `หน้า ${startIdx + 1}/${pages.length}`
-    : `หน้า ${startIdx + 1}-${startIdx + s.length}/${pages.length}`;
-  $("pos").textContent = `${pageLabel} (ชุด ${cur + 1}/${spreads.length})`;
+    function buildSpreads(keepPageIndex = null) {
+      if (keepPageIndex === null && spreads.length && cur < spreads.length) {
+        keepPageIndex = getSpreadStartIndex(cur);
+      }
+      spreads = [];
+      let i = 0;
+      let newCur = 0;
+      while (i < pages.length) {
+        const startIdx = i;
+        const mode = getEffectiveMode(i);
+        const count = (mode === 1 || i + 1 >= pages.length) ? 1 : 2;
+        spreads.push(pages.slice(i, i + count));
+        if (keepPageIndex !== null && keepPageIndex >= startIdx && keepPageIndex < startIdx + count) {
+          newCur = spreads.length - 1;
+        }
+        i += count;
+      }
+      if (keepPageIndex !== null) {
+        cur = newCur;
+      } else {
+        cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+      }
+    }
 
-  // อัปเดตปุ่มสลับหน้าเดี่ยว/หน้าคู่สำหรับหน้าปัจจุบัน
-  toggleBtn.style.display = "inline-block";
-  const isSingle = s.length === 1;
-  const canPairNext = startIdx + 1 < pages.length;
-  if (isSingle) {
-    toggleBtn.textContent = canPairNext ? "📄 หน้าเดี่ยว (กดเพื่อต่อภาพถัดไปเป็นหน้าคู่)" : "📄 หน้าเดี่ยว (หน้าสุดท้าย)";
-    toggleBtn.disabled = !canPairNext;
-  } else {
-    toggleBtn.textContent = "📖 หน้าคู่ (กดเพื่อแยกเป็นหน้าเดี่ยว)";
-    toggleBtn.disabled = false;
-  }
+    function toggleCurrentPageMode() {
+      if (!spreads.length) return;
+      const startIdx = getSpreadStartIndex(cur);
+      const currentLen = spreads[cur].length;
+      // สลับระหว่าง 1 (หน้าเดี่ยว) กับ 2 (หน้าคู่: เอาภาพถัดไปมาต่อ)
+      // กรณีอยู่หน้าสุดท้ายและมีแค่ 1 รูป แต่โหมดเป็น 2 อยู่แล้ว ให้สลับตามค่าโหมด
+      const currentMode = getEffectiveMode(startIdx);
+      const nextMode = (currentLen === 1 && currentMode === 1) ? 2 : 1;
+      pageModes[startIdx] = nextMode;
+      if (startIdx === 0) {
+        $("cover").checked = (nextMode === 1);
+      }
+      buildSpreads(startIdx);
+      render();
+    }
 
-  if ($("barPrev")) $("barPrev").disabled = (cur <= 0);
-  if ($("barNext")) $("barNext").disabled = (cur >= spreads.length - 1);
+    const src = u => $("proxy").checked ? "/proxy?url=" + encodeURIComponent(u) : u;
 
-  // เก็บ URL + ตำแหน่งหน้าไว้ใน query string เพื่อ bookmark ได้
-  const q = new URLSearchParams({ url: $("url").value });
-  if (cur > 0) q.set("p", cur);
-  history.replaceState(null, "", "?" + q);
-}
+    function render() {
+      const v = $("viewer");
+      v.querySelectorAll("img").forEach(e => e.remove());
+      const toggleBtn = $("pageToggle");
+      if (!spreads.length) {
+        $("pos").textContent = "";
+        toggleBtn.style.display = "none";
+        if ($("barPrev")) $("barPrev").disabled = true;
+        if ($("barNext")) $("barNext").disabled = true;
+        return;
+      }
+      const s = spreads[cur];
+      const startIdx = getSpreadStartIndex(cur);
+      v.classList.toggle("single", s.length === 1);
+      // row-reverse: รูปแรกใน DOM อยู่ขวาสุด (หน้าก่อนหน้าอยู่ขวา หน้าถัดไปอยู่ซ้าย)
+      s.forEach(u => { const im = new Image(); im.src = src(u); v.appendChild(im); });
+      // preload spread ถัดไป
+      (spreads[cur + 1] || []).forEach(u => { new Image().src = src(u); });
 
-const go = d => { const n = cur + d; if (n >= 0 && n < spreads.length) { cur = n; render(); } };
-$("next").onclick = () => go(1);
-$("prev").onclick = () => go(-1);
-$("barPrev").onclick = () => go(-1);
-$("barNext").onclick = () => go(1);
-$("barPrevCh").onclick = () => $("prevch").click();
-$("barNextCh").onclick = () => $("nextch").click();
-$("pageToggle").onclick = toggleCurrentPageMode;
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen().catch(() => {});
-}
-$("fs").onclick = toggleFullscreen;
-$("homeBtn").onclick = () => {
-  const u = $("url").value.trim();
-  window.open(u || "/reader", "_blank", "noopener");
-};
-document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-  if (e.key === "f" || e.key === "F") toggleFullscreen();
-  if (e.key === "s" || e.key === "S" || e.key === " ") {
-    e.preventDefault();
-    toggleCurrentPageMode();
-  }
-  if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageDown") {
-    e.preventDefault();
-    go(1);
-  }
-  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "PageUp") {
-    e.preventDefault();
-    go(-1);
-  }
-});
+      const pageLabel = s.length === 1
+        ? `หน้า ${startIdx + 1}/${pages.length}`
+        : `หน้า ${startIdx + 1}-${startIdx + s.length}/${pages.length}`;
+      $("pos").textContent = `${pageLabel} (ชุด ${cur + 1}/${spreads.length})`;
 
-// รองรับ Swipe Gesture และการเลื่อนหน้า: ซ้าย/ขึ้น = ถัดไป, ขวา/ลง = ย้อนกลับ
-let startX = 0, startY = 0, isTracking = false, swiped = false;
-const viewer = $("viewer");
+      // อัปเดตปุ่มสลับหน้าเดี่ยว/หน้าคู่สำหรับหน้าปัจจุบัน
+      toggleBtn.style.display = "inline-block";
+      const isSingle = s.length === 1;
+      const canPairNext = startIdx + 1 < pages.length;
+      if (isSingle) {
+        toggleBtn.textContent = canPairNext ? "📄 หน้าเดี่ยว (กดเพื่อต่อภาพถัดไปเป็นหน้าคู่)" : "📄 หน้าเดี่ยว (หน้าสุดท้าย)";
+        toggleBtn.disabled = !canPairNext;
+      } else {
+        toggleBtn.textContent = "📖 หน้าคู่ (กดเพื่อแยกเป็นหน้าเดี่ยว)";
+        toggleBtn.disabled = false;
+      }
 
-function handleSwipeEnd(endX, endY) {
-  if (!isTracking) return;
-  isTracking = false;
-  const dx = endX - startX;
-  const dy = endY - startY;
-  const absX = Math.abs(dx);
-  const absY = Math.abs(dy);
-  const minDistance = 30; // ไวขึ้นเล็กน้อยเพื่อให้ปัดง่าย
+      if ($("barPrev")) $("barPrev").disabled = (cur <= 0);
+      if ($("barNext")) $("barNext").disabled = (cur >= spreads.length - 1);
 
-  if (Math.max(absX, absY) >= minDistance) {
-    swiped = true;
-    setTimeout(() => { swiped = false; }, 350);
+      // เก็บ URL + ตำแหน่งหน้าไว้ใน query string เพื่อ bookmark ได้
+      const q = new URLSearchParams({ url: $("url").value });
+      if (cur > 0) q.set("p", cur);
+      history.replaceState(null, "", "?" + q);
+    }
 
-    if (absX >= absY) {
-      if (dx < 0) go(1);   // ปัดซ้าย = ถัดไป
-      else go(-1);        // ปัดขวา = ย้อนกลับ
+    const go = d => { const n = cur + d; if (n >= 0 && n < spreads.length) { cur = n; render(); } };
+    $("next").onclick = () => go(1);
+    $("prev").onclick = () => go(-1);
+    $("barPrev").onclick = () => go(-1);
+    $("barNext").onclick = () => go(1);
+    $("barPrevCh").onclick = () => $("prevch").click();
+    $("barNextCh").onclick = () => $("nextch").click();
+    $("pageToggle").onclick = toggleCurrentPageMode;
+    function updateFullscreenState() {
+      const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+      document.documentElement.classList.toggle("fullscreen", isFs);
+      document.body.classList.toggle("fullscreen", isFs);
+    }
+    document.addEventListener("fullscreenchange", updateFullscreenState);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenState);
+    document.addEventListener("mozfullscreenchange", updateFullscreenState);
+    document.addEventListener("MSFullscreenChange", updateFullscreenState);
+
+    function toggleFullscreen() {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => { });
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+      if (isFs) {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+      } else {
+        const el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen().catch(() => { });
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+      }
+    }
+    $("fs").onclick = toggleFullscreen;
+    $("homeBtn").onclick = () => {
+      const u = $("url").value.trim();
+      window.open(u || "/reader", "_blank", "noopener");
+    };
+    document.addEventListener("keydown", e => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.key === "f" || e.key === "F") toggleFullscreen();
+      if (e.key === "s" || e.key === "S" || e.key === " ") {
+        e.preventDefault();
+        toggleCurrentPageMode();
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageDown") {
+        e.preventDefault();
+        go(1);
+      }
+      if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "PageUp") {
+        e.preventDefault();
+        go(-1);
+      }
+    });
+
+    // รองรับ Swipe Gesture และการเลื่อนหน้า: ซ้าย/ขึ้น = ถัดไป, ขวา/ลง = ย้อนกลับ
+    let startX = 0, startY = 0, isTracking = false, swiped = false;
+    const viewer = $("viewer");
+
+    function handleSwipeEnd(endX, endY) {
+      if (!isTracking) return;
+      isTracking = false;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      const minDistance = 30; // ไวขึ้นเล็กน้อยเพื่อให้ปัดง่าย
+
+      if (Math.max(absX, absY) >= minDistance) {
+        swiped = true;
+        setTimeout(() => { swiped = false; }, 350);
+
+        if (absX >= absY) {
+          if (dx < 0) go(1);   // ปัดซ้าย = ถัดไป
+          else go(-1);        // ปัดขวา = ย้อนกลับ
+        } else {
+          if (dy < 0) go(1);   // ปัดขึ้น = ถัดไป
+          else go(-1);        // ปัดลง = ย้อนกลับ
+        }
+      }
+    }
+
+    // 1. Touch Events สำหรับจอมือถือ / แท็บเล็ต (พร้อม preventDefault ป้องกัน overscroll/pull-to-refresh)
+    viewer.addEventListener("touchstart", e => {
+      if (e.touches.length !== 1) { isTracking = false; return; }
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      isTracking = true;
+    }, { passive: true });
+
+    viewer.addEventListener("touchmove", e => {
+      if (!isTracking) return;
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+
+    viewer.addEventListener("touchend", e => {
+      if (!isTracking) return;
+      const t = e.changedTouches[0];
+      handleSwipeEnd(t.clientX, t.clientY);
+    }, { passive: true });
+
+    viewer.addEventListener("touchcancel", () => {
+      isTracking = false;
+    });
+
+    // 2. Pointer Events สำหรับคลิกลากด้วยเมาส์ (Desktop)
+    viewer.addEventListener("pointerdown", e => {
+      if (e.pointerType === "touch") return; // Touch จัดการผ่าน touchstart แล้ว
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
+      startX = e.clientX;
+      startY = e.clientY;
+      isTracking = true;
+    });
+
+    window.addEventListener("pointerup", e => {
+      if (e.pointerType === "touch" || !isTracking) return;
+      handleSwipeEnd(e.clientX, e.clientY);
+    });
+
+    window.addEventListener("pointercancel", e => {
+      if (e.pointerType === "touch") return;
+      isTracking = false;
+    });
+
+    // 3. ป้องกันการเกิด Click ซ้ำหลังปัดหน้าจอ (Ghost Click)
+    viewer.addEventListener("click", e => {
+      if (swiped) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, true);
+
+    // 4. รองรับ Mouse Wheel / Trackpad Scroll สำหรับเลื่อนหน้า
+    let wheelCooldown = false;
+    viewer.addEventListener("wheel", e => {
+      if (e.ctrlKey) return;
+      e.preventDefault();
+      if (wheelCooldown) return;
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (Math.abs(delta) > 20) {
+        wheelCooldown = true;
+        if (delta > 0) go(1);  // เลื่อนลง/ขวา = ถัดไป
+        else go(-1);          // เลื่อนขึ้น/ซ้าย = ย้อนกลับ
+        setTimeout(() => { wheelCooldown = false; }, 250);
+      }
+    }, { passive: false });
+    $("cover").onchange = () => {
+      delete pageModes[0];
+      buildSpreads();
+      render();
+    };
+    $("defaultMode").onchange = () => {
+      pageModes = {};
+      buildSpreads();
+      render();
+    };
+    $("proxy").onchange = render;
+
+    async function loadChapter() {
+      $("msg").textContent = "กำลังโหลด...";
+      $("msg").style.display = "";
+      try {
+        const q = new URLSearchParams({ url: $("url").value });
+        if ($("pattern").value.trim()) {
+          q.set("pattern", $("pattern").value.trim());
+        }
+        const r = await fetch("/images?" + q);
+        if (!r.ok) throw new Error((await r.json()).detail || r.status);
+        const data = await r.json();
+
+        allImages = (data.images || []).map(i => typeof i === "string" ? i : i.url);
+
+        // ใช้ groups จาก backend ถ้ามี หรือประมวลผล client-side
+        detectedGroups = data.groups && data.groups.length ? data.groups : extractGroupsClient(allImages);
+
+        // อัปเดต dropdown สำหรับกรองกลุ่มรูป
+        updateGroupDropdown(detectedGroups, allImages.length);
+
+        // กรองและเรียงหน้า
+        applyGroupSelection();
+
+        if (!pages.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง URL)");
+        pageModes = {};
+        cur = Math.min(initCur, Math.max(pages.length - 1, 0));
+        initCur = 0;
+        buildSpreads(null);
+        cur = Math.min(cur, Math.max(spreads.length - 1, 0));
+        $("msg").style.display = "none";
+        render();
+        localStorage.setItem("lastUrl", $("url").value);
+      } catch (err) {
+        pages = []; spreads = []; render();
+        $("msg").textContent = "ผิดพลาด: " + err.message;
+      }
+    }
+
+    $("form").onsubmit = e => { e.preventDefault(); loadChapter(); };
+
+    const changeChapter = (endpoint, key, label) => async () => {
+      if (!$("url").value) return;
+      $("msg").textContent = "กำลังหา" + label + "...";
+      $("msg").style.display = "";
+      try {
+        const r = await fetch("/" + endpoint + "?url=" + encodeURIComponent($("url").value));
+        if (!r.ok) throw new Error((await r.json()).detail || r.status);
+        $("url").value = (await r.json())[key];
+        await loadChapter();
+      } catch (err) {
+        $("msg").textContent = "ผิดพลาด: " + err.message;
+      }
+    };
+    $("nextch").onclick = changeChapter("next", "next", "ตอนถัดไป");
+    $("prevch").onclick = changeChapter("prev", "prev", "ตอนก่อนหน้า");
+
+    const qs = new URLSearchParams(location.search);
+    if (qs.get("url")) {
+      $("url").value = qs.get("url");
+      initCur = Math.max(0, parseInt(qs.get("p"), 10) || 0);
+      loadChapter();
     } else {
-      if (dy < 0) go(1);   // ปัดขึ้น = ถัดไป
-      else go(-1);        // ปัดลง = ย้อนกลับ
+      $("url").value = localStorage.getItem("lastUrl") || "";
     }
-  }
-}
-
-// 1. Touch Events สำหรับจอมือถือ / แท็บเล็ต (พร้อม preventDefault ป้องกัน overscroll/pull-to-refresh)
-viewer.addEventListener("touchstart", e => {
-  if (e.touches.length !== 1) { isTracking = false; return; }
-  const t = e.touches[0];
-  startX = t.clientX;
-  startY = t.clientY;
-  isTracking = true;
-}, { passive: true });
-
-viewer.addEventListener("touchmove", e => {
-  if (!isTracking) return;
-  if (e.cancelable) e.preventDefault();
-}, { passive: false });
-
-viewer.addEventListener("touchend", e => {
-  if (!isTracking) return;
-  const t = e.changedTouches[0];
-  handleSwipeEnd(t.clientX, t.clientY);
-}, { passive: true });
-
-viewer.addEventListener("touchcancel", () => {
-  isTracking = false;
-});
-
-// 2. Pointer Events สำหรับคลิกลากด้วยเมาส์ (Desktop)
-viewer.addEventListener("pointerdown", e => {
-  if (e.pointerType === "touch") return; // Touch จัดการผ่าน touchstart แล้ว
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
-  startX = e.clientX;
-  startY = e.clientY;
-  isTracking = true;
-});
-
-window.addEventListener("pointerup", e => {
-  if (e.pointerType === "touch" || !isTracking) return;
-  handleSwipeEnd(e.clientX, e.clientY);
-});
-
-window.addEventListener("pointercancel", e => {
-  if (e.pointerType === "touch") return;
-  isTracking = false;
-});
-
-// 3. ป้องกันการเกิด Click ซ้ำหลังปัดหน้าจอ (Ghost Click)
-viewer.addEventListener("click", e => {
-  if (swiped) {
-    e.stopImmediatePropagation();
-    e.preventDefault();
-  }
-}, true);
-
-// 4. รองรับ Mouse Wheel / Trackpad Scroll สำหรับเลื่อนหน้า
-let wheelCooldown = false;
-viewer.addEventListener("wheel", e => {
-  if (e.ctrlKey) return;
-  e.preventDefault();
-  if (wheelCooldown) return;
-  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-  if (Math.abs(delta) > 20) {
-    wheelCooldown = true;
-    if (delta > 0) go(1);  // เลื่อนลง/ขวา = ถัดไป
-    else go(-1);          // เลื่อนขึ้น/ซ้าย = ย้อนกลับ
-    setTimeout(() => { wheelCooldown = false; }, 250);
-  }
-}, { passive: false });
-$("cover").onchange = () => {
-  delete pageModes[0];
-  buildSpreads();
-  render();
-};
-$("defaultMode").onchange = () => {
-  pageModes = {};
-  buildSpreads();
-  render();
-};
-$("proxy").onchange = render;
-
-async function loadChapter() {
-  $("msg").textContent = "กำลังโหลด...";
-  $("msg").style.display = "";
-  try {
-    const q = new URLSearchParams({ url: $("url").value });
-    if ($("pattern").value.trim()) {
-      q.set("pattern", $("pattern").value.trim());
-    }
-    const r = await fetch("/images?" + q);
-    if (!r.ok) throw new Error((await r.json()).detail || r.status);
-    const data = await r.json();
-
-    allImages = (data.images || []).map(i => typeof i === "string" ? i : i.url);
-    
-    // ใช้ groups จาก backend ถ้ามี หรือประมวลผล client-side
-    detectedGroups = data.groups && data.groups.length ? data.groups : extractGroupsClient(allImages);
-
-    // อัปเดต dropdown สำหรับกรองกลุ่มรูป
-    updateGroupDropdown(detectedGroups, allImages.length);
-
-    // กรองและเรียงหน้า
-    applyGroupSelection();
-
-    if (!pages.length) throw new Error("ไม่พบรูป (ลองแก้ช่องกรอง URL)");
-    pageModes = {};
-    cur = Math.min(initCur, Math.max(pages.length - 1, 0));
-    initCur = 0;
-    buildSpreads(null);
-    cur = Math.min(cur, Math.max(spreads.length - 1, 0));
-    $("msg").style.display = "none";
-    render();
-    localStorage.setItem("lastUrl", $("url").value);
-  } catch (err) {
-    pages = []; spreads = []; render();
-    $("msg").textContent = "ผิดพลาด: " + err.message;
-  }
-}
-
-$("form").onsubmit = e => { e.preventDefault(); loadChapter(); };
-
-const changeChapter = (endpoint, key, label) => async () => {
-  if (!$("url").value) return;
-  $("msg").textContent = "กำลังหา" + label + "...";
-  $("msg").style.display = "";
-  try {
-    const r = await fetch("/" + endpoint + "?url=" + encodeURIComponent($("url").value));
-    if (!r.ok) throw new Error((await r.json()).detail || r.status);
-    $("url").value = (await r.json())[key];
-    await loadChapter();
-  } catch (err) {
-    $("msg").textContent = "ผิดพลาด: " + err.message;
-  }
-};
-$("nextch").onclick = changeChapter("next", "next", "ตอนถัดไป");
-$("prevch").onclick = changeChapter("prev", "prev", "ตอนก่อนหน้า");
-
-const qs = new URLSearchParams(location.search);
-if (qs.get("url")) {
-  $("url").value = qs.get("url");
-  initCur = Math.max(0, parseInt(qs.get("p"), 10) || 0);
-  loadChapter();
-} else {
-  $("url").value = localStorage.getItem("lastUrl") || "";
-}
-</script>
+  </script>
 </body>
+
 </html>
